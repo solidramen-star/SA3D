@@ -1,0 +1,24 @@
+{
+  "name": "structapp3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Touch-friendly 3D structural analysis web app (frames, joints, areas) with .sav CSV files",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0",
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^3.0.0"
+  }
+}
