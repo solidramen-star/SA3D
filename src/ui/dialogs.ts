@@ -17,12 +17,14 @@ import {
   LOAD_CASE_TYPES,
   LOAD_DIRS,
   LOAD_DIR_LABEL,
+  RELEASE_DOFS,
   type AreaDistribution,
   type LoadCase,
   type LoadCaseType,
   type LoadCombo,
   type LoadDir,
   type Material,
+  type MemberReleases,
   type Restraint,
   type Section,
   type SectionShape,
@@ -328,6 +330,29 @@ function restraintChecks(r: Restraint) {
   };
 }
 
+function releaseChecks(rel?: MemberReleases, label?: string) {
+  const r: MemberReleases = rel ? [...rel] : [false, false, false, false, false, false];
+  const checks = RELEASE_DOFS.map((name, i) => checkField(name, r[i]));
+  const el = h(
+    'div',
+    { class: 'releases-group' },
+    label ? h('div', { class: 'muted small' }, label) : null,
+    h('div', { class: 'chk-row' }, ...checks.map((c) => c.row)),
+  );
+  return {
+    el,
+    checks,
+    get: (): MemberReleases | undefined => {
+      const vals = checks.map((c) => c.get()) as MemberReleases;
+      return vals.some(Boolean) ? vals : undefined;
+    },
+    set: (v?: MemberReleases) => {
+      const vals = v ?? [false, false, false, false, false, false];
+      checks.forEach((c, i) => c.set(vals[i]));
+    },
+  };
+}
+
 export function defineSupports(app: App): void {
   const m = app.model;
   const body = h('div');
@@ -451,6 +476,64 @@ export function assignFrameProps(app: App, what: 'material' | 'section' | 'beta'
             for (const f of dd.frames) if (ids.includes(f.id)) (f as unknown as Record<string, unknown>)[what] = v;
           });
           toast(`Assigned to ${ids.length} frame(s)`, 'ok');
+        },
+      },
+    ],
+  });
+}
+
+export function assignFrameReleases(app: App): void {
+  const ids = need(app, 'frames');
+  if (!ids) return;
+  const d = app.model.data;
+  const first = d.frames.find((f) => f.id === ids[0])!;
+  const rcI = releaseChecks(first.relI, 'End I releases (Joint I)');
+  const rcJ = releaseChecks(first.relJ, 'End J releases (Joint J)');
+
+  const setPresets = (relI?: MemberReleases, relJ?: MemberReleases) => {
+    rcI.set(relI);
+    rcJ.set(relJ);
+  };
+
+  const presets = h(
+    'div',
+    { class: 'chips' },
+    btn('Rigid - Rigid (Continuous)', () => setPresets(undefined, undefined)),
+    btn('Pin - Pin (Truss)', () => setPresets([false, false, false, false, true, true], [false, false, false, false, true, true])),
+    btn('Pin - Rigid (Hinge at I)', () => setPresets([false, false, false, false, true, true], undefined)),
+    btn('Rigid - Pin (Hinge at J)', () => setPresets(undefined, [false, false, false, false, true, true])),
+  );
+
+  openDialog({
+    title: `Assign end releases to ${ids.length} frame(s)`,
+    body: h(
+      'div',
+      { class: 'form' },
+      h('div', { class: 'muted small' }, 'Presets'),
+      presets,
+      rcI.el,
+      rcJ.el,
+      h('p', { class: 'muted small' }, 'Checked DOFs are released (zero moment / shear / axial / torsion).'),
+    ),
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Assign',
+        kind: 'primary',
+        action: () => {
+          const relI = rcI.get();
+          const relJ = rcJ.get();
+          app.model.commit('assign releases', (dd) => {
+            for (const f of dd.frames) {
+              if (ids.includes(f.id)) {
+                if (relI) f.relI = [...relI];
+                else delete f.relI;
+                if (relJ) f.relJ = [...relJ];
+                else delete f.relJ;
+              }
+            }
+          });
+          toast(`Assigned releases to ${ids.length} frame(s)`, 'ok');
         },
       },
     ],

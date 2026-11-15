@@ -12,6 +12,7 @@ import { alertDialog, closeMenus, confirmDialog, dialogOpen, h, isMenuOpenFor, s
 import * as D from './dialogs';
 import { renderInspector } from './inspector';
 import { UNIT_SYSTEMS, fmtU, onUnitsChange, setUnits, uLabel, units, type UnitSystemId } from '../model/units';
+import { APP_VERSION, APP_UPDATE_DATE } from '../version';
 
 type SelectMode = 'replace' | 'add' | 'toggle';
 
@@ -508,6 +509,7 @@ export class App {
     assignMaterial: () => this.need('frames') && D.assignFrameProps(this, 'material'),
     assignSection: () => this.need('frames') && D.assignFrameProps(this, 'section'),
     assignBeta: () => this.need('frames') && D.assignFrameProps(this, 'beta'),
+    assignReleases: () => this.need('frames') && D.assignFrameReleases(this),
     assignArea: () => this.need('areas') && D.assignAreaDistribution(this),
     move: () => D.moveDialog(this),
     replicate: () => D.replicateDialog(this),
@@ -807,6 +809,7 @@ export class App {
       { label: 'Material…', action: () => this.cmd('assignMaterial') },
       { label: 'Section…', action: () => this.cmd('assignSection') },
       { label: 'Local axis angle β…', action: () => this.cmd('assignBeta') },
+      { label: 'End releases…', action: () => this.cmd('assignReleases') },
       { heading: 'Areas' },
       { label: 'Load distribution…', action: () => this.cmd('assignArea') },
     ];
@@ -886,7 +889,13 @@ export class App {
       { label: 'Quick guide', shortcut: 'F1', action: () => D.helpDialog() },
       { label: 'Load example model', action: () => void this.loadExample() },
       { separator: true },
-      { label: 'About', action: () => void alertDialog('About StructApp 3D', '3D frame analysis (linear static, 12-DOF space frame elements).') },
+      {
+        label: 'About',
+        action: () => void alertDialog(
+          'About StructApp 3D',
+          `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nTouch-friendly 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases).`
+        ),
+      },
     ];
   }
 
@@ -906,6 +915,7 @@ export class App {
         { heading: `Frames (${s.frames.length})` },
         { label: 'Material…', action: () => this.cmd('assignMaterial') },
         { label: 'Section…', action: () => this.cmd('assignSection') },
+        { label: 'End releases…', action: () => this.cmd('assignReleases') },
         { label: 'Point load…', action: () => this.cmd('framePoint') },
         { label: 'Uniform load…', action: () => this.cmd('frameUniform') },
         { label: 'Divide…', action: () => this.cmd('divide') },

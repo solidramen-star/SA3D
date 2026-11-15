@@ -1,9 +1,12 @@
 import {
   defaultModel,
   DOF_NAMES,
+  formatReleases,
   LOAD_CASE_TYPES,
   LOAD_DIRS,
   migrateModel,
+  parseReleases,
+  type Frame,
   type LoadCaseType,
   type LoadDir,
   type ModelData,
@@ -131,12 +134,12 @@ export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new
   const jm = new Map(d.joints.map((j) => [j.id, j]));
   out += table(
     'FRAMES',
-    ['ID', 'JointI', 'JointJ', 'Material', 'Section', 'Beta (deg)', `Length (${L})`],
+    ['ID', 'JointI', 'JointJ', 'Material', 'Section', 'Beta (deg)', 'Rel_I', 'Rel_J', `Length (${L})`],
     d.frames.map((f) => {
       const a = jm.get(f.i);
       const b = jm.get(f.j);
       const len = a && b ? Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) : 0;
-      return [f.id, f.i, f.j, f.material, f.section, f.beta, c(len, 'L')];
+      return [f.id, f.i, f.j, f.material, f.section, f.beta, formatReleases(f.relI), formatReleases(f.relJ), c(len, 'L')];
     }),
   );
   out += table(
@@ -399,14 +402,21 @@ export function readSav(text: string, info?: SavInfo): ModelData {
     if (!jm.has(id)) throw new SavError(`Line ${r.line} (${t}): joint ${id} does not exist`);
     return id;
   };
-  d.frames = rowsOf('FRAMES').map((r) => ({
-    id: r.num('ID', 0),
-    i: needJoint(r.num('JointI', 1), r, 'FRAMES'),
-    j: needJoint(r.num('JointJ', 2), r, 'FRAMES'),
-    material: r.str('Material', 3, d.materials[0]?.name ?? ''),
-    section: r.str('Section', 4, d.sections[0]?.name ?? ''),
-    beta: r.num('Beta', 5, 0),
-  }));
+  d.frames = rowsOf('FRAMES').map((r) => {
+    const relI = parseReleases(r.str('Rel_I', -1, 'None'));
+    const relJ = parseReleases(r.str('Rel_J', -1, 'None'));
+    const f: Frame = {
+      id: r.num('ID', 0),
+      i: needJoint(r.num('JointI', 1), r, 'FRAMES'),
+      j: needJoint(r.num('JointJ', 2), r, 'FRAMES'),
+      material: r.str('Material', 3, d.materials[0]?.name ?? ''),
+      section: r.str('Section', 4, d.sections[0]?.name ?? ''),
+      beta: r.num('Beta', 5, 0),
+    };
+    if (relI) f.relI = relI;
+    if (relJ) f.relJ = relJ;
+    return f;
+  });
   const fset = new Set(d.frames.map((f) => f.id));
   if (fset.size !== d.frames.length) throw new SavError('FRAMES: duplicate frame IDs');
   d.areas = rowsOf('AREAS').map((r) => {

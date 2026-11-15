@@ -133,6 +133,22 @@ function circleTexture(): THREE.Texture {
   return t;
 }
 
+function hollowCircleTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.beginPath();
+  g.arc(32, 32, 20, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  g.fill();
+  g.lineWidth = 8;
+  g.strokeStyle = '#38bdf8';
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function sectionShape(sec: Section): THREE.Shape | null {
   const d = sec.dims;
   const rect = (w: number, h: number, path: THREE.Path | THREE.Shape) => {
@@ -232,6 +248,7 @@ export class Viewer {
   private resultGroup = new THREE.Group();
   private overlayGroup = new THREE.Group();
   private jointTex = circleTexture();
+  private hingeTex = hollowCircleTexture();
   private renderQueued = false;
   private animStart = 0;
   private deformed: { geo: LineSegmentsGeometry; base: Float32Array; delta: Float32Array; pts?: THREE.Points } | null = null;
@@ -615,6 +632,44 @@ export class Viewer {
           sp.push(a.x, a.y, a.z, b.x, b.y, b.z);
         }
         if (sp.length) this.modelGroup.add(this.lines(sp, t.sel, 4));
+      }
+    }
+
+    // member end release visual hinges
+    if (!ghost) {
+      const hpos: number[] = [];
+      for (const f of d.frames) {
+        const a = jm.get(f.i);
+        const b = jm.get(f.j);
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dz = b.z - a.z;
+        const L = Math.hypot(dx, dy, dz);
+        if (L <= 1e-6) continue;
+        const frac = Math.min(0.08, 0.3 / L);
+        if (f.relI && f.relI.some(Boolean)) {
+          hpos.push(a.x + dx * frac, a.y + dy * frac, a.z + dz * frac);
+        }
+        if (f.relJ && f.relJ.some(Boolean)) {
+          hpos.push(b.x - dx * frac, b.y - dy * frac, b.z - dz * frac);
+        }
+      }
+      if (hpos.length) {
+        const hg = new THREE.BufferGeometry();
+        hg.setAttribute('position', new THREE.Float32BufferAttribute(hpos, 3));
+        const hpts = new THREE.Points(
+          hg,
+          new THREE.PointsMaterial({
+            size: 11,
+            sizeAttenuation: false,
+            map: this.hingeTex,
+            transparent: true,
+            alphaTest: 0.1,
+            depthTest: false,
+          }),
+        );
+        this.modelGroup.add(hpts);
       }
     }
 

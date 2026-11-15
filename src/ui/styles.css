@@ -643,7 +643,8 @@ body.busy * {
   margin: 6px 0;
 }
 .chk-row,
-.restraints {
+.restraints,
+.releases-group {
   display: flex;
   flex-wrap: wrap;
   gap: 0 4px;

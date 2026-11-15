@@ -1,8 +1,8 @@
 import type { App } from './app';
 import { checkField, h, numField, selectField, toast } from './dom';
-import { restraintText } from './dialogs';
+import { assignFrameReleases, restraintText } from './dialogs';
 import { frameDiagramsDialog } from './diagrams';
-import { DOF_NAMES, LOAD_DIR_LABEL, type AreaDistribution, type Restraint } from '../model/types';
+import { DOF_NAMES, formatReleases, LOAD_DIR_LABEL, type AreaDistribution, type Restraint } from '../model/types';
 import { SHAPE_LABEL, sectionProps } from '../model/sections';
 import { fmt, fmtU, uLabel, withU } from '../model/units';
 
@@ -196,6 +196,26 @@ function framePanel(app: App, id: number): Node[] {
       applyRow([beta], 'Apply β', (v) => void m.commit('beta', () => void (m.frame(id)!.beta = v[0]))),
     ),
     section(
+      'End releases',
+      kv([
+        ['End I (Joint ' + f.i + ')', formatReleases(f.relI)],
+        ['End J (Joint ' + f.j + ')', formatReleases(f.relJ)],
+      ]),
+      h(
+        'div',
+        { class: 'row-btns' },
+        smallBtn('Edit releases…', () => assignFrameReleases(app)),
+        f.relI || f.relJ
+          ? smallBtn('Set continuous', () => {
+              m.commit('clear releases', () => {
+                delete m.frame(id)!.relI;
+                delete m.frame(id)!.relJ;
+              });
+            })
+          : null,
+      ),
+    ),
+    section(
       'Frame loads',
       pl.length || ul.length
         ? table(
@@ -330,6 +350,7 @@ function multiPanel(app: App, s: { joints: number[]; frames: number[]; areas: nu
     btns.push(
       smallBtn('Material…', () => app.cmd('assignMaterial')),
       smallBtn('Section…', () => app.cmd('assignSection')),
+      smallBtn('End releases…', () => app.cmd('assignReleases')),
       smallBtn('Point load…', () => app.cmd('framePoint')),
       smallBtn('Uniform load…', () => app.cmd('frameUniform')),
     );
