@@ -612,7 +612,11 @@ const modeField = () =>
 function caseField(app: App) {
   const cases = app.model.data.loadCases;
   const def = cases.some((c) => c.name === app.lastLoadCase) ? app.lastLoadCase : cases[0].name;
-  return selectField<string>('Load case', cases.map((c) => [c.name, ` ()`]), def);
+  return selectField<string>(
+    'Load case',
+    cases.map((c) => [c.name, `${c.name} (${c.type})`]),
+    def,
+  );
 }
 
 function dirField(def: LoadDir = 'GRAV') {

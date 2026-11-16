@@ -1,7 +1,7 @@
 {
   "name": "structapp3d",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "module",
   "description": "Touch-friendly 3D structural analysis web app (frames, joints, areas) with .sav CSV files",
   "scripts": {
