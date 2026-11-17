@@ -209,6 +209,8 @@ body.busy * {
   position: relative;
   min-width: 0;
   overflow: hidden;
+  z-index: 0;
+  isolation: isolate;
 }
 .viewport {
   position: absolute;
@@ -217,6 +219,7 @@ body.busy * {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
+  z-index: 0;
 }
 .viewport *,
 .tool-hint,
@@ -260,6 +263,7 @@ body.busy * {
   font-size: 13px;
   pointer-events: none;
   text-align: center;
+  z-index: 5;
 }
 
 /* labels in the 3D view */
@@ -353,6 +357,7 @@ body.busy * {
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
+  z-index: 10;
 }
 .results-bar[hidden],
 .rb-group[hidden] {
@@ -398,6 +403,7 @@ body.busy * {
   border-left: 1px solid var(--border);
   min-height: 0;
   transition: width 0.18s ease;
+  z-index: 15;
 }
 .panel.collapsed {
   width: 0;
