@@ -802,21 +802,31 @@ export class Viewer {
     const col = this.theme.load;
     const L = s * 3;
     const vals = this.display.loadValues;
+
+    const jfStack = new Map<number, number>();
+    const jmStack = new Map<number, number>();
     for (const l of d.jointLoads) {
       const j = jm.get(l.joint);
       if (!j) continue;
       const p = v3(j);
+      const casePrefix = l.case ? `${l.case}: ` : '';
       const f = new THREE.Vector3(l.f[0], l.f[1], l.f[2]);
       if (f.lengthSq() > 0) {
+        const k = jfStack.get(l.joint) ?? 0;
+        jfStack.set(l.joint, k + 1);
         const dir = f.clone().normalize();
-        this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L), p, col, 2.5));
-        if (vals) this.modelGroup.add(this.label(withU(f.length(), 'F'), p.clone().addScaledVector(dir, -L * 1.1), 'load'));
+        const off = L * (1 + k * 0.4);
+        this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -off), p, col, 2.5));
+        if (vals) this.modelGroup.add(this.label(`${casePrefix}${withU(f.length(), 'F')}`, p.clone().addScaledVector(dir, -off * 1.12), 'load'));
       }
       const m = new THREE.Vector3(l.f[3], l.f[4], l.f[5]);
       if (m.lengthSq() > 0) {
+        const k = jmStack.get(l.joint) ?? 0;
+        jmStack.set(l.joint, k + 1);
         const dir = m.clone().normalize();
-        this.modelGroup.add(this.arrow(p, p.clone().addScaledVector(dir, L * 0.9), col, 2.5, true));
-        if (vals) this.modelGroup.add(this.label(withU(m.length(), 'M'), p.clone().addScaledVector(dir, L), 'load'));
+        const off = L * (0.9 + k * 0.4);
+        this.modelGroup.add(this.arrow(p, p.clone().addScaledVector(dir, off), col, 2.5, true));
+        if (vals) this.modelGroup.add(this.label(`${casePrefix}${withU(m.length(), 'M')}`, p.clone().addScaledVector(dir, off * 1.12), 'load'));
       }
     }
     const fm = new Map(d.frames.map((f) => [f.id, f]));
@@ -825,14 +835,22 @@ export class Viewer {
       const b = jm.get(f.j)!;
       return { a: v3(a), b: v3(b), ax: localAxes(jv(a), jv(b), f.beta) };
     };
+    const fpStack = new Map<string, number>();
     for (const l of d.framePointLoads) {
       const f = fm.get(l.frame);
       if (!f || !jm.has(f.i) || !jm.has(f.j)) continue;
       const { a, b, ax } = axesOf(f);
       const p = a.clone().lerp(b, l.rd);
+      const key = `${f.id}_${Math.round(l.rd * 1000)}`;
+      const k = fpStack.get(key) ?? 0;
+      fpStack.set(key, k + 1);
       const dir = loadDirVector(l.dir, ax).multiplyScalar(Math.sign(l.P) || 1);
-      this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L), p, col, 2.5));
-      if (vals) this.modelGroup.add(this.label(withU(Math.abs(l.P), 'F'), p.clone().addScaledVector(dir, -L * 1.1), 'load'));
+      const off = L * (1 + k * 0.4);
+      this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -off), p, col, 2.5));
+      if (vals) {
+        const casePrefix = l.case ? `${l.case}: ` : '';
+        this.modelGroup.add(this.label(`${casePrefix}${withU(Math.abs(l.P), 'F')}`, p.clone().addScaledVector(dir, -off * 1.12), 'load'));
+      }
     }
     const ucol = 0xfb923c;
     const stack = new Map<number, number>();
@@ -855,21 +873,30 @@ export class Viewer {
       }
       this.modelGroup.add(this.lines(tails, ucol, 2));
       if (vals) {
+        const casePrefix = l.case ? `${l.case}: ` : '';
         const mid = a.clone().lerp(b, 0.5).addScaledVector(dir, -off * 1.15);
-        this.modelGroup.add(this.label(withU(Math.abs(l.w), 'FL'), mid, 'load uload'));
+        this.modelGroup.add(this.label(`${casePrefix}${withU(Math.abs(l.w), 'FL')}`, mid, 'load uload'));
       }
     }
     const am = new Map(d.areas.map((a) => [a.id, a]));
+    const areaStack = new Map<number, number>();
     for (const l of d.areaLoads) {
       const a = am.get(l.area);
       if (!a) continue;
       const pts = a.joints.map((id) => jm.get(id)).filter(Boolean).map((j) => v3(j!));
       if (pts.length < 3) continue;
+      const k = areaStack.get(a.id) ?? 0;
+      areaStack.set(a.id, k + 1);
       const c = pts.reduce((s0, p) => s0.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
       const dir = new THREE.Vector3(0, 0, Math.sign(l.q) >= 0 ? -1 : 1);
+      const off = L * 0.8 * (1 + k * 0.5);
       const targets = [c, ...pts.map((p) => p.clone().lerp(c, 0.45))];
-      for (const p of targets) this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L * 0.8), p, 0x14b8a6, 1.5));
-      if (vals) this.modelGroup.add(this.label(withU(Math.abs(l.q), 'FA'), c.clone().addScaledVector(dir, -L * 0.95), 'load aload'));
+      for (const p of targets) this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -off), p, 0x14b8a6, 1.5));
+      if (vals) {
+        const casePrefix = l.case ? `${l.case}: ` : '';
+        const labelPos = c.clone().addScaledVector(dir, -off * 1.15);
+        this.modelGroup.add(this.label(`${casePrefix}${withU(Math.abs(l.q), 'FA')}`, labelPos, 'load aload'));
+      }
     }
   }
 
