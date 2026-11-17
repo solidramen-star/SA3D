@@ -803,8 +803,9 @@ export class Viewer {
     const L = s * 3;
     const vals = this.display.loadValues;
 
-    const jfStack = new Map<number, number>();
-    const jmStack = new Map<number, number>();
+    // 1. Joint Loads (compact multiline stack per joint, matching reaction labels)
+    const jfMap = new Map<number, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
+    const jmMap = new Map<number, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
     for (const l of d.jointLoads) {
       const j = jm.get(l.joint);
       if (!j) continue;
@@ -812,47 +813,70 @@ export class Viewer {
       const casePrefix = l.case ? `${l.case}: ` : '';
       const f = new THREE.Vector3(l.f[0], l.f[1], l.f[2]);
       if (f.lengthSq() > 0) {
-        const k = jfStack.get(l.joint) ?? 0;
-        jfStack.set(l.joint, k + 1);
         const dir = f.clone().normalize();
-        const off = L * (1 + k * 0.4);
-        this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -off), p, col, 2.5));
-        if (vals) this.modelGroup.add(this.label(`${casePrefix}${withU(f.length(), 'F')}`, p.clone().addScaledVector(dir, -off * 1.12), 'load'));
+        this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L), p, col, 2.5));
+        let entry = jfMap.get(l.joint);
+        if (!entry) {
+          entry = { p, dir, lines: [] };
+          jfMap.set(l.joint, entry);
+        }
+        entry.lines.push(`${casePrefix}${withU(f.length(), 'F')}`);
       }
       const m = new THREE.Vector3(l.f[3], l.f[4], l.f[5]);
       if (m.lengthSq() > 0) {
-        const k = jmStack.get(l.joint) ?? 0;
-        jmStack.set(l.joint, k + 1);
         const dir = m.clone().normalize();
-        const off = L * (0.9 + k * 0.4);
-        this.modelGroup.add(this.arrow(p, p.clone().addScaledVector(dir, off), col, 2.5, true));
-        if (vals) this.modelGroup.add(this.label(`${casePrefix}${withU(m.length(), 'M')}`, p.clone().addScaledVector(dir, off * 1.12), 'load'));
+        this.modelGroup.add(this.arrow(p, p.clone().addScaledVector(dir, L * 0.9), col, 2.5, true));
+        let entry = jmMap.get(l.joint);
+        if (!entry) {
+          entry = { p, dir, lines: [] };
+          jmMap.set(l.joint, entry);
+        }
+        entry.lines.push(`${casePrefix}${withU(m.length(), 'M')}`);
       }
     }
+    if (vals) {
+      for (const entry of jfMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.p.clone().addScaledVector(entry.dir, -L * 1.1), 'load'));
+      }
+      for (const entry of jmMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.p.clone().addScaledVector(entry.dir, L), 'load'));
+      }
+    }
+
     const fm = new Map(d.frames.map((f) => [f.id, f]));
     const axesOf = (f: Frame) => {
       const a = jm.get(f.i)!;
       const b = jm.get(f.j)!;
       return { a: v3(a), b: v3(b), ax: localAxes(jv(a), jv(b), f.beta) };
     };
-    const fpStack = new Map<string, number>();
+
+    // 2. Frame Point Loads (compact multiline stack per position)
+    const fpMap = new Map<string, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
     for (const l of d.framePointLoads) {
       const f = fm.get(l.frame);
       if (!f || !jm.has(f.i) || !jm.has(f.j)) continue;
       const { a, b, ax } = axesOf(f);
       const p = a.clone().lerp(b, l.rd);
-      const key = `${f.id}_${Math.round(l.rd * 1000)}`;
-      const k = fpStack.get(key) ?? 0;
-      fpStack.set(key, k + 1);
       const dir = loadDirVector(l.dir, ax).multiplyScalar(Math.sign(l.P) || 1);
-      const off = L * (1 + k * 0.4);
-      this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -off), p, col, 2.5));
-      if (vals) {
-        const casePrefix = l.case ? `${l.case}: ` : '';
-        this.modelGroup.add(this.label(`${casePrefix}${withU(Math.abs(l.P), 'F')}`, p.clone().addScaledVector(dir, -off * 1.12), 'load'));
+      this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L), p, col, 2.5));
+      const key = `${f.id}_${Math.round(l.rd * 1000)}`;
+      let entry = fpMap.get(key);
+      if (!entry) {
+        entry = { p, dir, lines: [] };
+        fpMap.set(key, entry);
+      }
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      entry.lines.push(`${casePrefix}${withU(Math.abs(l.P), 'F')}`);
+    }
+    if (vals) {
+      for (const entry of fpMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.p.clone().addScaledVector(entry.dir, -L * 1.1), 'load'));
       }
     }
+
+    // 3. Frame Uniform Loads (compact multiline stack per member)
     const ucol = 0xfb923c;
+    const fuMap = new Map<number, { mid: THREE.Vector3; lines: string[] }>();
     const stack = new Map<number, number>();
     for (const l of d.frameUniformLoads) {
       const f = fm.get(l.frame);
@@ -861,7 +885,7 @@ export class Viewer {
       const k = stack.get(f.id) ?? 0;
       stack.set(f.id, k + 1);
       const dir = loadDirVector(l.dir, ax).multiplyScalar(Math.sign(l.w) || 1);
-      const off = L * 0.7 * (1 + k * 0.6);
+      const off = L * 0.7 * (1 + k * 0.25);
       const n = 6;
       const tails: number[] = [];
       for (let i = 0; i <= n; i++) {
@@ -872,30 +896,49 @@ export class Viewer {
         this.modelGroup.add(this.arrow(tail, p, ucol, 1.5));
       }
       this.modelGroup.add(this.lines(tails, ucol, 2));
-      if (vals) {
-        const casePrefix = l.case ? `${l.case}: ` : '';
-        const mid = a.clone().lerp(b, 0.5).addScaledVector(dir, -off * 1.15);
-        this.modelGroup.add(this.label(`${casePrefix}${withU(Math.abs(l.w), 'FL')}`, mid, 'load uload'));
+      let entry = fuMap.get(f.id);
+      if (!entry) {
+        const mid = a.clone().lerp(b, 0.5).addScaledVector(dir, -L * 0.7 * 1.15);
+        entry = { mid, lines: [] };
+        fuMap.set(f.id, entry);
+      }
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      entry.lines.push(`${casePrefix}${withU(Math.abs(l.w), 'FL')}`);
+    }
+    if (vals) {
+      for (const entry of fuMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.mid, 'load uload'));
       }
     }
+
+    // 4. Area Loads (compact multiline stack per area)
     const am = new Map(d.areas.map((a) => [a.id, a]));
-    const areaStack = new Map<number, number>();
+    const faMap = new Map<number, { c: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
+    const drawnAreas = new Set<number>();
     for (const l of d.areaLoads) {
       const a = am.get(l.area);
       if (!a) continue;
       const pts = a.joints.map((id) => jm.get(id)).filter(Boolean).map((j) => v3(j!));
       if (pts.length < 3) continue;
-      const k = areaStack.get(a.id) ?? 0;
-      areaStack.set(a.id, k + 1);
       const c = pts.reduce((s0, p) => s0.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
       const dir = new THREE.Vector3(0, 0, Math.sign(l.q) >= 0 ? -1 : 1);
-      const off = L * 0.8 * (1 + k * 0.5);
-      const targets = [c, ...pts.map((p) => p.clone().lerp(c, 0.45))];
-      for (const p of targets) this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -off), p, 0x14b8a6, 1.5));
-      if (vals) {
-        const casePrefix = l.case ? `${l.case}: ` : '';
-        const labelPos = c.clone().addScaledVector(dir, -off * 1.15);
-        this.modelGroup.add(this.label(`${casePrefix}${withU(Math.abs(l.q), 'FA')}`, labelPos, 'load aload'));
+      if (!drawnAreas.has(a.id)) {
+        drawnAreas.add(a.id);
+        const targets = [c, ...pts.map((p) => p.clone().lerp(c, 0.45))];
+        for (const p of targets) this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L * 0.8), p, 0x14b8a6, 1.5));
+      }
+      let entry = faMap.get(a.id);
+      if (!entry) {
+        entry = { c, dir, lines: [] };
+        faMap.set(a.id, entry);
+      }
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      entry.lines.push(`${casePrefix}${withU(Math.abs(l.q), 'FA')}`);
+    }
+    if (vals) {
+      for (const entry of faMap.values()) {
+        const labelPos = entry.c.clone().addScaledVector(entry.dir, -L * 0.95);
+        this.modelGroup.add(this.label(entry.lines.join('\n'), labelPos, 'load aload'));
       }
     }
   }
