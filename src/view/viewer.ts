@@ -133,6 +133,22 @@ function circleTexture(): THREE.Texture {
   return t;
 }
 
+function hollowCircleTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.beginPath();
+  g.arc(32, 32, 20, 0, Math.PI * 2);
+  g.fillStyle = 'rgba(15, 23, 42, 0.9)';
+  g.fill();
+  g.lineWidth = 8;
+  g.strokeStyle = '#38bdf8';
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function sectionShape(sec: Section): THREE.Shape | null {
   const d = sec.dims;
   const rect = (w: number, h: number, path: THREE.Path | THREE.Shape) => {
@@ -232,6 +248,7 @@ export class Viewer {
   private resultGroup = new THREE.Group();
   private overlayGroup = new THREE.Group();
   private jointTex = circleTexture();
+  private hingeTex = hollowCircleTexture();
   private renderQueued = false;
   private animStart = 0;
   private deformed: { geo: LineSegmentsGeometry; base: Float32Array; delta: Float32Array; pts?: THREE.Points } | null = null;
@@ -618,6 +635,44 @@ export class Viewer {
       }
     }
 
+    // member end release visual hinges
+    if (!ghost) {
+      const hpos: number[] = [];
+      for (const f of d.frames) {
+        const a = jm.get(f.i);
+        const b = jm.get(f.j);
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dz = b.z - a.z;
+        const L = Math.hypot(dx, dy, dz);
+        if (L <= 1e-6) continue;
+        const frac = Math.min(0.08, 0.3 / L);
+        if (f.relI && f.relI.some(Boolean)) {
+          hpos.push(a.x + dx * frac, a.y + dy * frac, a.z + dz * frac);
+        }
+        if (f.relJ && f.relJ.some(Boolean)) {
+          hpos.push(b.x - dx * frac, b.y - dy * frac, b.z - dz * frac);
+        }
+      }
+      if (hpos.length) {
+        const hg = new THREE.BufferGeometry();
+        hg.setAttribute('position', new THREE.Float32BufferAttribute(hpos, 3));
+        const hpts = new THREE.Points(
+          hg,
+          new THREE.PointsMaterial({
+            size: 11,
+            sizeAttenuation: false,
+            map: this.hingeTex,
+            transparent: true,
+            alphaTest: 0.1,
+            depthTest: false,
+          }),
+        );
+        this.modelGroup.add(hpts);
+      }
+    }
+
     // joints
     if (d.joints.length) {
       const pos: number[] = [];
@@ -747,29 +802,56 @@ export class Viewer {
     const col = this.theme.load;
     const L = s * 3;
     const vals = this.display.loadValues;
+
+    // 1. Joint Loads (compact multiline stack per joint, matching reaction labels)
+    const jfMap = new Map<number, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
+    const jmMap = new Map<number, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
     for (const l of d.jointLoads) {
       const j = jm.get(l.joint);
       if (!j) continue;
       const p = v3(j);
+      const casePrefix = l.case ? `${l.case}: ` : '';
       const f = new THREE.Vector3(l.f[0], l.f[1], l.f[2]);
       if (f.lengthSq() > 0) {
         const dir = f.clone().normalize();
         this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L), p, col, 2.5));
-        if (vals) this.modelGroup.add(this.label(withU(f.length(), 'F'), p.clone().addScaledVector(dir, -L * 1.1), 'load'));
+        let entry = jfMap.get(l.joint);
+        if (!entry) {
+          entry = { p, dir, lines: [] };
+          jfMap.set(l.joint, entry);
+        }
+        entry.lines.push(`${casePrefix}${withU(f.length(), 'F')}`);
       }
       const m = new THREE.Vector3(l.f[3], l.f[4], l.f[5]);
       if (m.lengthSq() > 0) {
         const dir = m.clone().normalize();
         this.modelGroup.add(this.arrow(p, p.clone().addScaledVector(dir, L * 0.9), col, 2.5, true));
-        if (vals) this.modelGroup.add(this.label(withU(m.length(), 'M'), p.clone().addScaledVector(dir, L), 'load'));
+        let entry = jmMap.get(l.joint);
+        if (!entry) {
+          entry = { p, dir, lines: [] };
+          jmMap.set(l.joint, entry);
+        }
+        entry.lines.push(`${casePrefix}${withU(m.length(), 'M')}`);
       }
     }
+    if (vals) {
+      for (const entry of jfMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.p.clone().addScaledVector(entry.dir, -L * 1.1), 'load'));
+      }
+      for (const entry of jmMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.p.clone().addScaledVector(entry.dir, L), 'load'));
+      }
+    }
+
     const fm = new Map(d.frames.map((f) => [f.id, f]));
     const axesOf = (f: Frame) => {
       const a = jm.get(f.i)!;
       const b = jm.get(f.j)!;
       return { a: v3(a), b: v3(b), ax: localAxes(jv(a), jv(b), f.beta) };
     };
+
+    // 2. Frame Point Loads (compact multiline stack per position)
+    const fpMap = new Map<string, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
     for (const l of d.framePointLoads) {
       const f = fm.get(l.frame);
       if (!f || !jm.has(f.i) || !jm.has(f.j)) continue;
@@ -777,9 +859,24 @@ export class Viewer {
       const p = a.clone().lerp(b, l.rd);
       const dir = loadDirVector(l.dir, ax).multiplyScalar(Math.sign(l.P) || 1);
       this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L), p, col, 2.5));
-      if (vals) this.modelGroup.add(this.label(withU(Math.abs(l.P), 'F'), p.clone().addScaledVector(dir, -L * 1.1), 'load'));
+      const key = `${f.id}_${Math.round(l.rd * 1000)}`;
+      let entry = fpMap.get(key);
+      if (!entry) {
+        entry = { p, dir, lines: [] };
+        fpMap.set(key, entry);
+      }
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      entry.lines.push(`${casePrefix}${withU(Math.abs(l.P), 'F')}`);
     }
+    if (vals) {
+      for (const entry of fpMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.p.clone().addScaledVector(entry.dir, -L * 1.1), 'load'));
+      }
+    }
+
+    // 3. Frame Uniform Loads (compact multiline stack per member)
     const ucol = 0xfb923c;
+    const fuMap = new Map<number, { mid: THREE.Vector3; lines: string[] }>();
     const stack = new Map<number, number>();
     for (const l of d.frameUniformLoads) {
       const f = fm.get(l.frame);
@@ -788,7 +885,7 @@ export class Viewer {
       const k = stack.get(f.id) ?? 0;
       stack.set(f.id, k + 1);
       const dir = loadDirVector(l.dir, ax).multiplyScalar(Math.sign(l.w) || 1);
-      const off = L * 0.7 * (1 + k * 0.6);
+      const off = L * 0.7 * (1 + k * 0.25);
       const n = 6;
       const tails: number[] = [];
       for (let i = 0; i <= n; i++) {
@@ -799,12 +896,25 @@ export class Viewer {
         this.modelGroup.add(this.arrow(tail, p, ucol, 1.5));
       }
       this.modelGroup.add(this.lines(tails, ucol, 2));
-      if (vals) {
-        const mid = a.clone().lerp(b, 0.5).addScaledVector(dir, -off * 1.15);
-        this.modelGroup.add(this.label(withU(Math.abs(l.w), 'FL'), mid, 'load uload'));
+      let entry = fuMap.get(f.id);
+      if (!entry) {
+        const mid = a.clone().lerp(b, 0.5).addScaledVector(dir, -L * 0.7 * 1.15);
+        entry = { mid, lines: [] };
+        fuMap.set(f.id, entry);
+      }
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      entry.lines.push(`${casePrefix}${withU(Math.abs(l.w), 'FL')}`);
+    }
+    if (vals) {
+      for (const entry of fuMap.values()) {
+        this.modelGroup.add(this.label(entry.lines.join('\n'), entry.mid, 'load uload'));
       }
     }
+
+    // 4. Area Loads (compact multiline stack per area)
     const am = new Map(d.areas.map((a) => [a.id, a]));
+    const faMap = new Map<number, { c: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
+    const drawnAreas = new Set<number>();
     for (const l of d.areaLoads) {
       const a = am.get(l.area);
       if (!a) continue;
@@ -812,9 +922,24 @@ export class Viewer {
       if (pts.length < 3) continue;
       const c = pts.reduce((s0, p) => s0.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
       const dir = new THREE.Vector3(0, 0, Math.sign(l.q) >= 0 ? -1 : 1);
-      const targets = [c, ...pts.map((p) => p.clone().lerp(c, 0.45))];
-      for (const p of targets) this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L * 0.8), p, 0x14b8a6, 1.5));
-      if (vals) this.modelGroup.add(this.label(withU(Math.abs(l.q), 'FA'), c.clone().addScaledVector(dir, -L * 0.95), 'load aload'));
+      if (!drawnAreas.has(a.id)) {
+        drawnAreas.add(a.id);
+        const targets = [c, ...pts.map((p) => p.clone().lerp(c, 0.45))];
+        for (const p of targets) this.modelGroup.add(this.arrow(p.clone().addScaledVector(dir, -L * 0.8), p, 0x14b8a6, 1.5));
+      }
+      let entry = faMap.get(a.id);
+      if (!entry) {
+        entry = { c, dir, lines: [] };
+        faMap.set(a.id, entry);
+      }
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      entry.lines.push(`${casePrefix}${withU(Math.abs(l.q), 'FA')}`);
+    }
+    if (vals) {
+      for (const entry of faMap.values()) {
+        const labelPos = entry.c.clone().addScaledVector(entry.dir, -L * 0.95);
+        this.modelGroup.add(this.label(entry.lines.join('\n'), labelPos, 'load aload'));
+      }
     }
   }
 

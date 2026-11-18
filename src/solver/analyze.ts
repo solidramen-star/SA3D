@@ -1,14 +1,18 @@
 import { sectionProps } from '../model/sections';
-import { DOF_NAMES, migrateModel, type Joint, type LoadCombo, type ModelData } from '../model/types';
+import { DOF_NAMES, migrateModel, type Joint, type LoadCombo, type MemberReleases, type ModelData } from '../model/types';
 import {
+  condenseFER,
+  condenseStiffness,
   GAUSS3,
   globalStiffness,
   localAxes,
   localStiffness,
   pointFER,
+  recoverLocalDisplacements,
   rotation,
   toGlobal12,
   toLocal12,
+  type CondensationInfo,
   type Vec3,
 } from './frame3d';
 import { dirLocal, distributeAreaLoads, type MemberLoads } from './loads';
@@ -53,6 +57,10 @@ interface Elem {
   axes: [Vec3, Vec3, Vec3];
   R: number[];
   kl: Float64Array;
+  klCondensed: Float64Array;
+  condInfo: CondensationInfo;
+  relI?: MemberReleases;
+  relJ?: MemberReleases;
   E: number;
   A: number;
   I22: number;
@@ -289,6 +297,13 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       throw new SolverError(`Section ${s.name}: A, I22, I33 and J must be positive.`);
     const G = m.E / (2 * (1 + m.nu));
     const axes = localAxes(pi, pj, f.beta);
+    const kl = localStiffness(m.E, G, sp.A, sp.I22, sp.I33, sp.J, L);
+    const condInfo = condenseStiffness(kl, f.relI, f.relJ);
+    if (!condInfo) {
+      throw new SolverError(
+        `Frame ${f.id}: Invalid end releases cause an element mechanism (e.g. releasing axial or torsion at both ends).`,
+      );
+    }
     elems.push({
       id: f.id,
       ji: idxOf.get(f.i)!,
@@ -296,7 +311,11 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       L,
       axes,
       R: rotation(axes),
-      kl: localStiffness(m.E, G, sp.A, sp.I22, sp.I33, sp.J, L),
+      kl,
+      klCondensed: condInfo.klCondensed,
+      condInfo,
+      relI: f.relI,
+      relJ: f.relJ,
       E: m.E,
       A: sp.A,
       I22: sp.I22,
@@ -339,7 +358,7 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
     }
     K = new SkylineMatrix(heights);
     elems.forEach((e, n) => {
-      const kg = globalStiffness(e.kl, e.R);
+      const kg = globalStiffness(e.klCondensed, e.R);
       const eqs = elemEqs[n];
       for (let r = 0; r < 12; r++) {
         const er = eqs[r];
@@ -397,6 +416,7 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
     const loadsOf = caseLoads.get(lc.name)!;
     const warnings = [...globalWarnings, ...caseWarnings.get(lc.name)!];
     const fers = elems.map((e) => memberFER(loadsOf.get(e.id)!, e.L));
+    const fersCondensed = elems.map((e, n) => condenseFER(fers[n], e.condInfo));
 
     // Load vector (global, per joint DOF)
     const Fj = new Float64Array(nJ * 6);
@@ -410,7 +430,7 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
     const sumLoad: Vec3 = [0, 0, 0];
     for (let ji = 0; ji < nJ; ji++) for (let k = 0; k < 3; k++) sumLoad[k] += Fj[ji * 6 + k];
     elems.forEach((e, n) => {
-      const fg = toGlobal12(e.R, fers[n]);
+      const fg = toGlobal12(e.R, fersCondensed[n]);
       for (let k = 0; k < 6; k++) {
         Fj[e.ji * 6 + k] -= fg[k];
         Fj[e.jj * 6 + k] -= fg[6 + k];
@@ -439,13 +459,17 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
         dg[k] = D[e.ji * 6 + k];
         dg[6 + k] = D[e.jj * 6 + k];
       }
-      const dl = toLocal12(e.R, dg);
+      const dlJoint = toLocal12(e.R, dg);
+      const ul = recoverLocalDisplacements(dlJoint, fers[n], e.condInfo);
+
       const f = new Float64Array(12);
       for (let r = 0; r < 12; r++) {
         let s = fers[n][r];
-        for (let c = 0; c < 12; c++) s += e.kl[r * 12 + c] * dl[c];
+        for (let c = 0; c < 12; c++) s += e.kl[r * 12 + c] * ul[c];
         f[r] = s;
       }
+      for (const relDof of e.condInfo.released) f[relDof] = 0;
+
       const fg = toGlobal12(e.R, f);
       for (let k = 0; k < 6; k++) {
         sumEnd[e.ji * 6 + k] += fg[k];
@@ -482,12 +506,31 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
         res.M2.push(Mx[1]);
         res.M3.push(Mx[2]);
       }
+      if (res.x.length > 0) {
+        const last = res.x.length - 1;
+        if (e.relI) {
+          if (e.relI[0]) res.P[0] = 0;
+          if (e.relI[1]) res.V2[0] = 0;
+          if (e.relI[2]) res.V3[0] = 0;
+          if (e.relI[3]) res.T[0] = 0;
+          if (e.relI[4]) res.M2[0] = 0;
+          if (e.relI[5]) res.M3[0] = 0;
+        }
+        if (e.relJ) {
+          if (e.relJ[0]) res.P[last] = 0;
+          if (e.relJ[1]) res.V2[last] = 0;
+          if (e.relJ[2]) res.V3[last] = 0;
+          if (e.relJ[3]) res.T[last] = 0;
+          if (e.relJ[4]) res.M2[last] = 0;
+          if (e.relJ[5]) res.M3[last] = 0;
+        }
+      }
       // axial: u' = N/EA, integrated once with a linear correction to match end values
       const ax = cumtrapz(res.x, res.P.map((p) => p / (e.E * e.A)));
-      const axCorr = (dl[6] - dl[0] - ax[ax.length - 1]) / e.L;
-      const u1 = res.x.map((x, k) => dl[0] + ax[k] + axCorr * x);
-      const u2 = integrateDeflection(res.x, res.M3.map((m) => m / (e.E * e.I33)), dl[1], dl[7]);
-      const u3 = integrateDeflection(res.x, res.M2.map((m) => -m / (e.E * e.I22)), dl[2], dl[8]);
+      const axCorr = (ul[6] - ul[0] - ax[ax.length - 1]) / e.L;
+      const u1 = res.x.map((x, k) => ul[0] + ax[k] + axCorr * x);
+      const u2 = integrateDeflection(res.x, res.M3.map((m) => m / (e.E * e.I33)), ul[1], ul[7]);
+      const u3 = integrateDeflection(res.x, res.M2.map((m) => -m / (e.E * e.I22)), ul[2], ul[8]);
       const [a1, a2, a3] = e.axes;
       for (let k = 0; k < res.x.length; k++) {
         const v: Vec3 = [

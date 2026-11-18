@@ -21,7 +21,7 @@ type W = Window & {
   showOpenFilePicker?: (o: PickerOpts) => Promise<FsFileHandle[]>;
 };
 
-const SAV_TYPES = [{ description: 'Structure model (.sav, comma separated)', accept: { 'text/csv': ['.sav'] } }];
+const SAV_TYPES = [{ description: 'StructApp 3D model', accept: { 'text/csv': ['.sav'] } }];
 
 export const hasFsAccess = () => typeof (window as W).showSaveFilePicker === 'function';
 

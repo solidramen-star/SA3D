@@ -41,6 +41,57 @@ export interface Joint {
   r: Restraint;
 }
 
+export type ReleaseDof = 'P' | 'V2' | 'V3' | 'T' | 'M2' | 'M3';
+export const RELEASE_DOFS: ReleaseDof[] = ['P', 'V2', 'V3', 'T', 'M2', 'M3'];
+export const RELEASE_DOF_LABEL: Record<ReleaseDof, string> = {
+  P: 'Axial (P)',
+  V2: 'Shear V2',
+  V3: 'Shear V3',
+  T: 'Torsion (T)',
+  M2: 'Moment M2 (minor)',
+  M3: 'Moment M3 (major)',
+};
+
+export type MemberReleases = [boolean, boolean, boolean, boolean, boolean, boolean]; // P V2 V3 T M2 M3 (false = rigid/continuous, true = released)
+
+export const NO_RELEASES: MemberReleases = [false, false, false, false, false, false];
+export const PIN_RELEASES: MemberReleases = [false, false, false, false, true, true]; // M2 & M3 released
+
+export function hasMemberReleases(rel?: MemberReleases): boolean {
+  return !!rel && rel.some(Boolean);
+}
+
+export function formatReleases(rel?: MemberReleases): string {
+  if (!rel || !rel.some(Boolean)) return 'None';
+  const tokens: string[] = [];
+  if (rel[0]) tokens.push('P');
+  if (rel[1]) tokens.push('V2');
+  if (rel[2]) tokens.push('V3');
+  if (rel[3]) tokens.push('T');
+  if (rel[4]) tokens.push('M2');
+  if (rel[5]) tokens.push('M3');
+  return tokens.join(' ');
+}
+
+export function parseReleases(str?: string): MemberReleases | undefined {
+  if (!str) return undefined;
+  const s = str.trim().toUpperCase();
+  if (!s || s === 'NONE' || s === 'NO' || s === 'FIXED' || s === 'RIGID') return undefined;
+  if (s === 'PIN' || s === 'PINNED' || s === 'HINGE') {
+    return [false, false, false, false, true, true];
+  }
+  const tokens = new Set(s.split(/[\s,;|+]+/).map((t) => t.trim().toUpperCase()));
+  const rel: MemberReleases = [
+    tokens.has('P') || tokens.has('U1') || tokens.has('AXIAL'),
+    tokens.has('V2') || tokens.has('U2'),
+    tokens.has('V3') || tokens.has('U3'),
+    tokens.has('T') || tokens.has('R1') || tokens.has('TORSION'),
+    tokens.has('M2') || tokens.has('R2'),
+    tokens.has('M3') || tokens.has('R3'),
+  ];
+  return rel.some(Boolean) ? rel : undefined;
+}
+
 export interface Frame {
   id: number;
   i: number;
@@ -48,6 +99,8 @@ export interface Frame {
   material: string;
   section: string;
   beta: number; // degrees, rotation of local 2-3 about local 1
+  relI?: MemberReleases; // false = rigid/continuous, true = released
+  relJ?: MemberReleases;
 }
 
 export type AreaDistribution = 'two-way' | 'one-way';

@@ -1,3 +1,5 @@
+import type { MemberReleases } from '../model/types';
+
 export type Vec3 = [number, number, number];
 
 export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
@@ -158,3 +160,185 @@ export const GAUSS3 = [
   { x: 0, w: 8 / 9 },
   { x: Math.sqrt(3 / 5), w: 5 / 9 },
 ];
+
+export interface CondensationInfo {
+  retained: number[];
+  released: number[];
+  W: number[][]; // invKee * Ker, size (ne x nr)
+  invKee: number[][]; // inv(Kee), size (ne x ne)
+  klCondensed: Float64Array; // 144 entries (12x12)
+}
+
+/**
+ * Solve A * X = B using Gauss-Jordan elimination with partial pivoting.
+ * A is n x n, B is n x m. Returns X (n x m) or null if A is singular.
+ */
+export function solveDenseLinearSystem(A: number[][], B: number[][]): number[][] | null {
+  const n = A.length;
+  if (n === 0) return [];
+  const m = B[0]?.length ?? 0;
+  // Augment: n x (n + m)
+  const aug: number[][] = Array.from({ length: n }, (_, i) => [...A[i], ...B[i]]);
+  for (let col = 0; col < n; col++) {
+    let maxRow = col;
+    let maxVal = Math.abs(aug[col][col]);
+    for (let r = col + 1; r < n; r++) {
+      const val = Math.abs(aug[r][col]);
+      if (val > maxVal) {
+        maxVal = val;
+        maxRow = r;
+      }
+    }
+    if (maxVal < 1e-12) return null; // singular or rank-deficient
+    if (maxRow !== col) {
+      const tmp = aug[col];
+      aug[col] = aug[maxRow];
+      aug[maxRow] = tmp;
+    }
+    const pivot = aug[col][col];
+    for (let c = col; c < n + m; c++) aug[col][c] /= pivot;
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const factor = aug[r][col];
+      if (Math.abs(factor) < 1e-18) continue;
+      for (let c = col; c < n + m; c++) aug[r][c] -= factor * aug[col][c];
+    }
+  }
+  return aug.map((row) => row.slice(n));
+}
+
+/**
+ * Condense local stiffness matrix for member end releases.
+ * DOFs at i: 0:P, 1:V2, 2:V3, 3:T, 4:M2, 5:M3
+ * DOFs at j: 6:P, 7:V2, 8:V3, 9:T, 10:M2, 11:M3
+ */
+export function condenseStiffness(
+  kl: Float64Array,
+  relI?: MemberReleases,
+  relJ?: MemberReleases,
+): CondensationInfo | null {
+  const released: number[] = [];
+  const retained: number[] = [];
+  for (let k = 0; k < 6; k++) {
+    if (relI && relI[k]) released.push(k);
+    else retained.push(k);
+  }
+  for (let k = 0; k < 6; k++) {
+    if (relJ && relJ[k]) released.push(6 + k);
+    else retained.push(6 + k);
+  }
+
+  if (released.length === 0) {
+    return {
+      retained,
+      released,
+      W: [],
+      invKee: [],
+      klCondensed: new Float64Array(kl),
+    };
+  }
+
+  if (retained.length === 0) return null;
+
+  const ne = released.length;
+  const nr = retained.length;
+
+  const Kee: number[][] = Array.from({ length: ne }, (_, r) =>
+    Array.from({ length: ne }, (_, c) => kl[released[r] * 12 + released[c]]),
+  );
+  const Ker: number[][] = Array.from({ length: ne }, (_, r) =>
+    Array.from({ length: nr }, (_, c) => kl[released[r] * 12 + retained[c]]),
+  );
+
+  const Ine: number[][] = Array.from({ length: ne }, (_, r) =>
+    Array.from({ length: ne }, (_, c) => (r === c ? 1 : 0)),
+  );
+
+  const rhs = Ker.map((row, r) => [...row, ...Ine[r]]);
+  const sol = solveDenseLinearSystem(Kee, rhs);
+  if (!sol) return null;
+
+  const W: number[][] = sol.map((row) => row.slice(0, nr));
+  const invKee: number[][] = sol.map((row) => row.slice(nr));
+
+  const klCondensed = new Float64Array(144);
+  for (let i = 0; i < nr; i++) {
+    const ri = retained[i];
+    for (let j = 0; j < nr; j++) {
+      const rj = retained[j];
+      let sub = 0;
+      for (let m = 0; m < ne; m++) {
+        sub += Ker[m][i] * W[m][j];
+      }
+      klCondensed[ri * 12 + rj] = kl[ri * 12 + rj] - sub;
+    }
+  }
+
+  for (let i = 0; i < nr; i++) {
+    const ri = retained[i];
+    for (let j = i + 1; j < nr; j++) {
+      const rj = retained[j];
+      const avg = 0.5 * (klCondensed[ri * 12 + rj] + klCondensed[rj * 12 + ri]);
+      klCondensed[ri * 12 + rj] = avg;
+      klCondensed[rj * 12 + ri] = avg;
+    }
+  }
+
+  return {
+    retained,
+    released,
+    W,
+    invKee,
+    klCondensed,
+  };
+}
+
+export function condenseFER(fer: Float64Array, info: CondensationInfo): Float64Array {
+  if (info.released.length === 0) return new Float64Array(fer);
+
+  const ne = info.released.length;
+  const nr = info.retained.length;
+  const f0e: number[] = new Array(ne);
+  for (let m = 0; m < ne; m++) f0e[m] = fer[info.released[m]];
+
+  const ferCondensed = new Float64Array(12);
+  for (let i = 0; i < nr; i++) {
+    const ri = info.retained[i];
+    let sub = 0;
+    for (let m = 0; m < ne; m++) {
+      sub += info.W[m][i] * f0e[m];
+    }
+    ferCondensed[ri] = fer[ri] - sub;
+  }
+  return ferCondensed;
+}
+
+export function recoverLocalDisplacements(
+  dlJoint: Float64Array,
+  fer: Float64Array,
+  info: CondensationInfo,
+): Float64Array {
+  if (info.released.length === 0) return new Float64Array(dlJoint);
+
+  const ne = info.released.length;
+  const nr = info.retained.length;
+  const ur: number[] = new Array(nr);
+  for (let i = 0; i < nr; i++) ur[i] = dlJoint[info.retained[i]];
+
+  const f0e: number[] = new Array(ne);
+  for (let m = 0; m < ne; m++) f0e[m] = fer[info.released[m]];
+
+  const ue: number[] = new Array(ne);
+  for (let m = 0; m < ne; m++) {
+    let term1 = 0;
+    for (let k = 0; k < ne; k++) term1 += info.invKee[m][k] * f0e[k];
+    let term2 = 0;
+    for (let k = 0; k < nr; k++) term2 += info.W[m][k] * ur[k];
+    ue[m] = -term1 - term2;
+  }
+
+  const ul = new Float64Array(12);
+  for (let i = 0; i < nr; i++) ul[info.retained[i]] = ur[i];
+  for (let m = 0; m < ne; m++) ul[info.released[m]] = ue[m];
+  return ul;
+}
