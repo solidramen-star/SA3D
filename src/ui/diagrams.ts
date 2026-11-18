@@ -90,14 +90,15 @@ function plot(fr: FrameResult, s: Series, cursor: number | null, onPick: (x: num
   const cBot = s.reversed ? 'var(--pos)' : 'var(--neg)';
 
   const defs = svg('defs', {});
-  const gradFill = svg('linearGradient', { id: `${gid}_f`, x1: 0, y1: 0, x2: 0, y2: 1 });
+  // userSpaceOnUse so the zero-line stop is measured against the full plot height, not the shape's bbox.
+  const gradFill = svg('linearGradient', { id: `${gid}_f`, gradientUnits: 'userSpaceOnUse', x1: 0, y1: 0, x2: 0, y2: H });
   gradFill.append(
     svg('stop', { offset: '0%', 'stop-color': cTop, 'stop-opacity': 0.35 }),
     svg('stop', { offset: `${zeroPct}%`, 'stop-color': cTop, 'stop-opacity': 0.35 }),
     svg('stop', { offset: `${zeroPct}%`, 'stop-color': cBot, 'stop-opacity': 0.35 }),
     svg('stop', { offset: '100%', 'stop-color': cBot, 'stop-opacity': 0.35 }),
   );
-  const gradLine = svg('linearGradient', { id: `${gid}_l`, x1: 0, y1: 0, x2: 0, y2: 1 });
+  const gradLine = svg('linearGradient', { id: `${gid}_l`, gradientUnits: 'userSpaceOnUse', x1: 0, y1: 0, x2: 0, y2: H });
   gradLine.append(
     svg('stop', { offset: '0%', 'stop-color': cTop, 'stop-opacity': 1 }),
     svg('stop', { offset: `${zeroPct}%`, 'stop-color': cTop, 'stop-opacity': 1 }),

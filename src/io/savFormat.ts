@@ -109,11 +109,11 @@ export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new
   );
   out += table(
     'SECTIONS',
-    ['Name', 'Shape', 'Dim1', 'Dim2', 'Dim3', 'Dim4', `A (${un('A')})`, `I33 (${un('L4')})`, `I22 (${un('L4')})`, `J (${un('L4')})`],
+    ['Name', 'Shape', 'Dim1', 'Dim2', 'Dim3', 'Dim4', `A (${un('A')})`, `I33 (${un('L4')})`, `I22 (${un('L4')})`,     `J (${un('L4')})`, `As2 (${un('A')})`, `As3 (${un('A')})`],
     d.sections.map((sec) => {
       const p = sectionProps(sec);
       const dims = [0, 1, 2, 3].map((k) => (sec.dims[k] === undefined ? '' : c(sec.dims[k], dimQty(sec.shape, k))) as number | string);
-      return [sec.name, sec.shape, ...dims, c(p.A, 'A'), c(p.I33, 'L4'), c(p.I22, 'L4'), c(p.J, 'L4')];
+          return [sec.name, sec.shape, ...dims, c(p.A, 'A'), c(p.I33, 'L4'), c(p.I22, 'L4'), c(p.J, 'L4'), c(p.As2, 'A'), c(p.As3, 'A')];
     }),
   );
   out += table(

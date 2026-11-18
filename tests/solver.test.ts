@@ -15,6 +15,7 @@ function base(): ModelData {
   const m = defaultModel();
   m.materials = [{ name: 'M', E, nu: 0.3, gamma: 78.5 }];
   m.sections = [{ name: 'S', shape: 'general', dims: [A, I33, I22, J] }];
+  m.settings.selfWeight = false;
   return m;
 }
 function joint(m: ModelData, id: number, x: number, y: number, z: number, r: Restraint = [false, false, false, false, false, false]) {
@@ -199,6 +200,112 @@ describe('section properties', () => {
   it('I section', () => {
     const p = sectionProps({ name: 'i', shape: 'I', dims: [0.3, 0.15, 0.009, 0.0065] });
     close(p.A, 2 * 0.15 * 0.009 + 0.282 * 0.0065);
+    close(p.As2, 0.3 * 0.0065);
+    close(p.As3, (5 / 3) * 0.15 * 0.009);
+  });
+  it('shear areas', () => {
+    const r = sectionProps({ name: 'r', shape: 'rect', dims: [0.5, 0.3] });
+    close(r.As2, (5 / 6) * 0.15);
+    close(r.As3, (5 / 6) * 0.15);
+    const b = sectionProps({ name: 'b', shape: 'box', dims: [0.4, 0.2, 0.01, 0.008] });
+    close(b.As2, 2 * 0.4 * 0.008);
+    close(b.As3, 2 * 0.2 * 0.01);
+    const u = sectionProps({ name: 'u', shape: 'unp', dims: [0.2, 0.075, 0.0115, 0.0085] });
+    close(u.As2, 0.2 * 0.0085);
+    close(u.As3, (5 / 3) * 0.075 * 0.0115);
+    const g = sectionProps({ name: 'g', shape: 'general', dims: [A, I33, I22, J] });
+    expect(g.As2).toBe(0);
+    expect(g.As3).toBe(0);
+  });
+});
+
+describe('shear deformation (Timoshenko)', () => {
+  // deep rectangle so that shear deflection is significant
+  const h = 0.6;
+  const bw = 0.3;
+  const G = E / (2 * 1.3);
+  const Ar = h * bw;
+  const As = (5 / 6) * Ar;
+  const Imaj = (bw * h ** 3) / 12;
+  const Imin = (h * bw ** 3) / 12;
+  function rectModel(): ModelData {
+    const m = base();
+    m.sections = [{ name: 'S', shape: 'rect', dims: [h, bw] }];
+    return m;
+  }
+
+  it('cantilever tip load, major and minor plane: δ = PL³/3EI + PL/GAs', () => {
+    const m = rectModel();
+    const L = 3;
+    const P = 50;
+    joint(m, 1, 0, 0, 0, [...FIXED] as Restraint);
+    joint(m, 2, L, 0, 0);
+    frame(m, 1, 1, 2);
+    m.jointLoads.push({ case: 'DEAD', joint: 2, f: [0, P, -P, 0, 0, 0] });
+    const r = analyze(m);
+    close(r.disp[2][2], -((P * L ** 3) / (3 * E * Imaj) + (P * L) / (G * As)));
+    close(r.disp[2][1], (P * L ** 3) / (3 * E * Imin) + (P * L) / (G * As));
+    close(Math.abs(r.reactions[1][4]), P * L); // moments unchanged by shear flexibility
+    const fr = r.frames[0];
+    const mid = fr.x.findIndex((x) => Math.abs(x - L / 2) < 1e-9);
+    const x = L / 2;
+    close(fr.disp[mid][2], -((P * x * x * (3 * L - x)) / (6 * E * Imaj) + (P * x) / (G * As)), 2e-3);
+  });
+
+  it('simply supported UDL: midspan 5wL⁴/384EI + wL²/8GAs', () => {
+    const m = rectModel();
+    const L = 4;
+    const w = 30;
+    joint(m, 1, 0, 0, 0, [true, true, true, true, false, false]);
+    joint(m, 2, L, 0, 0, [false, true, true, false, false, false]);
+    frame(m, 1, 1, 2);
+    m.frameUniformLoads.push({ case: 'DEAD', frame: 1, dir: 'GRAV', w });
+    const fr = analyze(m).frames[0];
+    const mid = fr.x.findIndex((x) => Math.abs(x - L / 2) < 1e-9);
+    close(fr.M3[mid], (w * L * L) / 8, 1e-9);
+    close(fr.disp[mid][2], -((5 * w * L ** 4) / (384 * E * Imaj) + (w * L * L) / (8 * G * As)), 2e-3);
+  });
+
+  it('fixed-fixed UDL: end moments wL²/12, midspan wL⁴/384EI + wL²/8GAs', () => {
+    const m = rectModel();
+    const L = 4;
+    const w = 30;
+    joint(m, 1, 0, 0, 0, [...FIXED] as Restraint);
+    joint(m, 2, L, 0, 0, [...FIXED] as Restraint);
+    frame(m, 1, 1, 2);
+    m.frameUniformLoads.push({ case: 'DEAD', frame: 1, dir: 'GRAV', w });
+    const fr = analyze(m).frames[0];
+    close(fr.M3[0], (-w * L * L) / 12, 1e-9);
+    const mid = fr.x.findIndex((x) => Math.abs(x - L / 2) < 1e-9);
+    close(fr.disp[mid][2], -((w * L ** 4) / (384 * E * Imaj) + (w * L * L) / (8 * G * As)), 5e-3);
+  });
+
+  it('off-centre member point load matches a joint load on a split member', () => {
+    const L = 5;
+    const a = 1.5;
+    const P = 40;
+    const m1 = rectModel();
+    joint(m1, 1, 0, 0, 0, [...FIXED] as Restraint);
+    joint(m1, 2, L, 0, 0, [...FIXED] as Restraint);
+    frame(m1, 1, 1, 2);
+    m1.framePointLoads.push({ case: 'DEAD', frame: 1, dir: 'GRAV', P, rd: a / L });
+    m1.framePointLoads.push({ case: 'DEAD', frame: 1, dir: 'GY', P, rd: a / L });
+    const r1 = analyze(m1);
+
+    const m2 = rectModel();
+    joint(m2, 1, 0, 0, 0, [...FIXED] as Restraint);
+    joint(m2, 3, a, 0, 0);
+    joint(m2, 2, L, 0, 0, [...FIXED] as Restraint);
+    frame(m2, 1, 1, 3);
+    frame(m2, 2, 3, 2);
+    m2.jointLoads.push({ case: 'DEAD', joint: 3, f: [0, P, -P, 0, 0, 0] });
+    const r2 = analyze(m2);
+
+    for (const jid of [1, 2]) for (let k = 0; k < 6; k++) close(r1.reactions[jid][k], r2.reactions[jid][k], 1e-9);
+    const fr = r1.frames[0];
+    const at = fr.x.findIndex((x) => Math.abs(x - a) < 1e-9);
+    close(fr.disp[at][2], r2.disp[3][2], 5e-3);
+    close(fr.disp[at][1], r2.disp[3][1], 5e-3);
   });
 });
 

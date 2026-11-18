@@ -44,8 +44,16 @@ export function localAxes(pi: Vec3, pj: Vec3, betaDeg: number): [Vec3, Vec3, Vec
   return [e1, e2, e3];
 }
 
-/** 12×12 local stiffness (row-major Float64Array). DOFs: u1 u2 u3 r1 r2 r3 at i then j. */
-export function localStiffness(E: number, G: number, A: number, I22: number, I33: number, J: number, L: number) {
+/** Timoshenko shear parameter Φ = 12·E·I / (G·As·L²); 0 when shear deformation is ignored (As ≤ 0). */
+export function shearPhi(E: number, G: number, I: number, As: number, L: number): number {
+  return As > 0 && G > 0 ? (12 * E * I) / (G * As * L * L) : 0;
+}
+
+/**
+ * 12×12 local stiffness (row-major Float64Array). DOFs: u1 u2 u3 r1 r2 r3 at i then j.
+ * Bending uses Timoshenko beam theory when shear areas are given (As2 → V2 / 1-2 plane, As3 → V3 / 1-3 plane).
+ */
+export function localStiffness(E: number, G: number, A: number, I22: number, I33: number, J: number, L: number, As2 = 0, As3 = 0) {
   const k = new Float64Array(144);
   const set = (r: number, c: number, v: number) => {
     k[r * 12 + c] = v;
@@ -60,29 +68,31 @@ export function localStiffness(E: number, G: number, A: number, I22: number, I33
   set(3, 9, -gj);
   set(9, 9, gj);
   // bending in 1-2 plane (about 3): v2, r3
-  const a = (E * I33) / L ** 3;
+  const p2 = shearPhi(E, G, I33, As2, L);
+  const a = (E * I33) / (L ** 3 * (1 + p2));
   set(1, 1, 12 * a);
   set(1, 5, 6 * a * L);
   set(1, 7, -12 * a);
   set(1, 11, 6 * a * L);
-  set(5, 5, 4 * a * L * L);
+  set(5, 5, (4 + p2) * a * L * L);
   set(5, 7, -6 * a * L);
-  set(5, 11, 2 * a * L * L);
+  set(5, 11, (2 - p2) * a * L * L);
   set(7, 7, 12 * a);
   set(7, 11, -6 * a * L);
-  set(11, 11, 4 * a * L * L);
+  set(11, 11, (4 + p2) * a * L * L);
   // bending in 1-3 plane (about 2): v3, r2
-  const b = (E * I22) / L ** 3;
+  const p3 = shearPhi(E, G, I22, As3, L);
+  const b = (E * I22) / (L ** 3 * (1 + p3));
   set(2, 2, 12 * b);
   set(2, 4, -6 * b * L);
   set(2, 8, -12 * b);
   set(2, 10, -6 * b * L);
-  set(4, 4, 4 * b * L * L);
+  set(4, 4, (4 + p3) * b * L * L);
   set(4, 8, 6 * b * L);
-  set(4, 10, 2 * b * L * L);
+  set(4, 10, (2 - p3) * b * L * L);
   set(8, 8, 12 * b);
   set(8, 10, 6 * b * L);
-  set(10, 10, 4 * b * L * L);
+  set(10, 10, (4 + p3) * b * L * L);
   return k;
 }
 
@@ -133,26 +143,29 @@ export function globalStiffness(kl: Float64Array, R: number[]): Float64Array {
 
 /**
  * Fixed-end reactions (forces exerted by the clamps on the member, local coords) for a point load
- * with local components p at distance a from end i.
+ * with local components p at distance a from end i. phi2 / phi3 are the Timoshenko shear parameters
+ * of the 1-2 and 1-3 bending planes (0 = Euler-Bernoulli).
  */
-export function pointFER(p: Vec3, a: number, L: number, out: Float64Array): void {
+export function pointFER(p: Vec3, a: number, L: number, out: Float64Array, phi2 = 0, phi3 = 0): void {
   const b = L - a;
-  const L2 = L * L;
-  const L3 = L2 * L;
   out[0] += (-p[0] * b) / L;
   out[6] += (-p[0] * a) / L;
-  const vi = (b * b * (3 * a + b)) / L3;
-  const vj = (a * a * (a + 3 * b)) / L3;
-  const mi = (a * b * b) / L2;
-  const mj = (a * a * b) / L2;
-  out[1] += -p[1] * vi;
-  out[5] += -p[1] * mi;
-  out[7] += -p[1] * vj;
-  out[11] += p[1] * mj;
-  out[2] += -p[2] * vi;
-  out[4] += p[2] * mi;
-  out[8] += -p[2] * vj;
-  out[10] += -p[2] * mj;
+  const coef = (phi: number) => {
+    const d = L * L * (1 + phi);
+    const mi = (a * b * (b + (phi * L) / 2)) / d;
+    const mj = (a * b * (a + (phi * L) / 2)) / d;
+    return { mi, mj, vi: b / L + (mi - mj) / L, vj: a / L - (mi - mj) / L };
+  };
+  const c2 = coef(phi2);
+  out[1] += -p[1] * c2.vi;
+  out[5] += -p[1] * c2.mi;
+  out[7] += -p[1] * c2.vj;
+  out[11] += p[1] * c2.mj;
+  const c3 = coef(phi3);
+  out[2] += -p[2] * c3.vi;
+  out[4] += p[2] * c3.mi;
+  out[8] += -p[2] * c3.vj;
+  out[10] += -p[2] * c3.mj;
 }
 
 export const GAUSS3 = [

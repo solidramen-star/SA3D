@@ -191,7 +191,7 @@ export const DOF_NAMES = ['UX', 'UY', 'UZ', 'RX', 'RY', 'RZ'];
 
 export function defaultModel(): ModelData {
   return {
-    settings: { gridSpacing: 1, gridLines: 10, workPlane: 'XY', elevation: 0, selfWeight: false },
+    settings: { gridSpacing: 1, gridLines: 10, workPlane: 'XY', elevation: 0, selfWeight: true },
     materials: [
       { name: 'STEEL', E: 2.0e8, nu: 0.3, gamma: 76.98 },
       { name: 'C30', E: 2.5743e7, nu: 0.2, gamma: 23.56 },

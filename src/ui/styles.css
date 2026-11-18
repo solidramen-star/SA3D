@@ -281,7 +281,10 @@ body.busy * {
 }
 .lbl.joint {
   color: #7dd3fc;
-  transform: translate(10px, -10px);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  /* CSS2DRenderer owns `transform`, so offset with margins to clear the joint dot */
+  margin: -14px 0 0 14px;
 }
 .lbl.frame {
   color: var(--text);
@@ -668,6 +671,43 @@ body.busy * {
 .msg {
   margin: 0 0 10px;
   white-space: pre-wrap;
+}
+
+/* About dialog version history */
+.about h3 {
+  margin: 4px 0 6px;
+  font-size: 13px;
+}
+.changelog {
+  max-height: min(40vh, 280px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line, color-mix(in srgb, var(--text) 20%, transparent));
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+}
+.changelog section + section {
+  margin-top: 8px;
+}
+.changelog h4 {
+  margin: 0 0 2px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.changelog .date {
+  font-weight: 400;
+  opacity: 0.7;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.changelog ul {
+  margin: 0;
+  padding-left: 18px;
 }
 
 /* tables */

@@ -6,6 +6,9 @@ export interface SectionProps {
   I33: number; // major axis (bending about local 3, depth along local 2)
   I22: number; // minor axis (bending about local 2)
   J: number;
+  /** Effective shear areas for V2 / V3 (0 = shear deformation ignored, e.g. 'general'). */
+  As2: number;
+  As3: number;
   depth: number; // extent along local 2 (for drawing)
   width: number; // extent along local 3 (for drawing)
 }
@@ -143,18 +146,21 @@ export function sectionProps(s: Section): SectionProps {
   switch (s.shape) {
     case 'rect': {
       const [h, b] = d;
-      return { A: b * h, I33: (b * h ** 3) / 12, I22: (h * b ** 3) / 12, J: rectTorsion(h, b), depth: h, width: b };
+      const A = b * h;
+      return { A, I33: (b * h ** 3) / 12, I22: (h * b ** 3) / 12, J: rectTorsion(h, b), As2: (5 / 6) * A, As3: (5 / 6) * A, depth: h, width: b };
     }
     case 'circle': {
       const [D] = d;
       const I = (Math.PI * D ** 4) / 64;
-      return { A: (Math.PI * D * D) / 4, I33: I, I22: I, J: 2 * I, depth: D, width: D };
+      const A = (Math.PI * D * D) / 4;
+      return { A, I33: I, I22: I, J: 2 * I, As2: 0.9 * A, As3: 0.9 * A, depth: D, width: D };
     }
     case 'pipe': {
       const [D, t] = d;
       const Di = Math.max(D - 2 * t, 0);
       const I = (Math.PI * (D ** 4 - Di ** 4)) / 64;
-      return { A: (Math.PI * (D * D - Di * Di)) / 4, I33: I, I22: I, J: 2 * I, depth: D, width: D };
+      const A = (Math.PI * (D * D - Di * Di)) / 4;
+      return { A, I33: I, I22: I, J: 2 * I, As2: A / 2, As3: A / 2, depth: D, width: D };
     }
     case 'I': {
       const [h, bf, tf, tw] = d;
@@ -164,6 +170,8 @@ export function sectionProps(s: Section): SectionProps {
         I33: (bf * h ** 3 - (bf - tw) * hw ** 3) / 12,
         I22: (2 * tf * bf ** 3) / 12 + (hw * tw ** 3) / 12,
         J: (2 * bf * tf ** 3 + (h - tf) * tw ** 3) / 3,
+        As2: h * tw,
+        As3: (5 / 3) * bf * tf,
         depth: h,
         width: bf,
       };
@@ -178,6 +186,8 @@ export function sectionProps(s: Section): SectionProps {
         I33: (b * h ** 3 - bi * hi ** 3) / 12,
         I22: (h * b ** 3 - hi * bi ** 3) / 12,
         J: denom > 0 ? (2 * tw * tf * (b - tw) ** 2 * (h - tf) ** 2) / denom : 0,
+        As2: 2 * h * tw,
+        As3: 2 * b * tf,
         depth: h,
         width: b,
       };
@@ -185,12 +195,14 @@ export function sectionProps(s: Section): SectionProps {
     case 'unp':
     case 'C': {
       const p = compositeProps(channelRects(s));
-      return { A: p.A, I33: p.I33, I22: p.I22, J: p.J, depth: d[0], width: d[1] };
+      // shear areas: web (d·tw) for V2, both flanges (2·b·tf·5/6) for V3; C has uniform thickness t
+      const [tf, tw] = s.shape === 'unp' ? [d[2], d[3]] : [d[3], d[3]];
+      return { A: p.A, I33: p.I33, I22: p.I22, J: p.J, As2: d[0] * tw, As3: (5 / 3) * d[1] * tf, depth: d[0], width: d[1] };
     }
     case 'general': {
       const [A, I33, I22, J] = d;
       const size = Math.sqrt(Math.max(A, 1e-6));
-      return { A, I33, I22, J, depth: size, width: size };
+      return { A, I33, I22, J, As2: 0, As3: 0, depth: size, width: size };
     }
   }
 }

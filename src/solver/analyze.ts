@@ -10,6 +10,7 @@ import {
   pointFER,
   recoverLocalDisplacements,
   rotation,
+  shearPhi,
   toGlobal12,
   toLocal12,
   type CondensationInfo,
@@ -65,15 +66,20 @@ interface Elem {
   A: number;
   I22: number;
   I33: number;
+  G: number;
+  As2: number; // shear areas (0 = no shear deformation)
+  As3: number;
+  phi2: number; // Timoshenko shear parameters of the 1-2 / 1-3 bending planes
+  phi3: number;
   selfWeight: number; // kN/m, gamma × A
 }
 
 const STATIONS = 40;
 
 /** Add member FER for all loads on the member. */
-function memberFER(loads: MemberLoads, L: number): Float64Array {
+function memberFER(loads: MemberLoads, L: number, phi2 = 0, phi3 = 0): Float64Array {
   const fer = new Float64Array(12);
-  for (const p of loads.points) pointFER(p.p, p.a, L, fer);
+  for (const p of loads.points) pointFER(p.p, p.a, L, fer, phi2, phi3);
   for (const d of loads.dists) {
     const half = (d.x2 - d.x1) / 2;
     const mid = (d.x1 + d.x2) / 2;
@@ -81,7 +87,7 @@ function memberFER(loads: MemberLoads, L: number): Float64Array {
       const x = mid + g.x * half;
       const t = d.x2 > d.x1 ? (x - d.x1) / (d.x2 - d.x1) : 0;
       const w = (d.w1 + (d.w2 - d.w1) * t) * g.w * half;
-      pointFER([d.d[0] * w, d.d[1] * w, d.d[2] * w], x, L, fer);
+      pointFER([d.d[0] * w, d.d[1] * w, d.d[2] * w], x, L, fer, phi2, phi3);
     }
   }
   return fer;
@@ -123,9 +129,13 @@ function cumtrapz(x: number[], y: number[]): number[] {
   return out;
 }
 
-/** Solve f'' = c with f(0)=f0, f(L)=fL by double integration of the curvature samples. */
-function integrateDeflection(x: number[], curv: number[], f0: number, fL: number): number[] {
-  const slope = cumtrapz(x, curv);
+/**
+ * Solve f'' = c with f(0)=f0, f(L)=fL by double integration of the curvature samples.
+ * shear (optional) is the Timoshenko shear-strain slope V/(G·As) added to the bending slope.
+ */
+function integrateDeflection(x: number[], curv: number[], f0: number, fL: number, shear?: number[]): number[] {
+  const bend = cumtrapz(x, curv);
+  const slope = shear ? bend.map((s, k) => s + shear[k]) : bend;
   const f = cumtrapz(x, slope);
   const L = x[x.length - 1];
   const corr = (fL - f0 - f[f.length - 1]) / L;
@@ -297,7 +307,7 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       throw new SolverError(`Section ${s.name}: A, I22, I33 and J must be positive.`);
     const G = m.E / (2 * (1 + m.nu));
     const axes = localAxes(pi, pj, f.beta);
-    const kl = localStiffness(m.E, G, sp.A, sp.I22, sp.I33, sp.J, L);
+    const kl = localStiffness(m.E, G, sp.A, sp.I22, sp.I33, sp.J, L, sp.As2, sp.As3);
     const condInfo = condenseStiffness(kl, f.relI, f.relJ);
     if (!condInfo) {
       throw new SolverError(
@@ -320,6 +330,11 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       A: sp.A,
       I22: sp.I22,
       I33: sp.I33,
+      G,
+      As2: sp.As2,
+      As3: sp.As3,
+      phi2: shearPhi(m.E, G, sp.I33, sp.As2, L),
+      phi3: shearPhi(m.E, G, sp.I22, sp.As3, L),
       selfWeight: m.gamma > 0 ? m.gamma * sp.A : 0,
     });
   }
@@ -415,7 +430,7 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
   for (const lc of data.loadCases) {
     const loadsOf = caseLoads.get(lc.name)!;
     const warnings = [...globalWarnings, ...caseWarnings.get(lc.name)!];
-    const fers = elems.map((e) => memberFER(loadsOf.get(e.id)!, e.L));
+    const fers = elems.map((e) => memberFER(loadsOf.get(e.id)!, e.L, e.phi2, e.phi3));
     const fersCondensed = elems.map((e, n) => condenseFER(fers[n], e.condInfo));
 
     // Load vector (global, per joint DOF)
@@ -529,8 +544,11 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       const ax = cumtrapz(res.x, res.P.map((p) => p / (e.E * e.A)));
       const axCorr = (ul[6] - ul[0] - ax[ax.length - 1]) / e.L;
       const u1 = res.x.map((x, k) => ul[0] + ax[k] + axCorr * x);
-      const u2 = integrateDeflection(res.x, res.M3.map((m) => m / (e.E * e.I33)), ul[1], ul[7]);
-      const u3 = integrateDeflection(res.x, res.M2.map((m) => -m / (e.E * e.I22)), ul[2], ul[8]);
+      // bending curvature plus Timoshenko shear slope γ = V/(G·As) (dM3/dx = −V2, dM2/dx = V3)
+      const gs2 = e.As2 > 0 ? res.V2.map((v) => v / (e.G * e.As2)) : undefined;
+      const gs3 = e.As3 > 0 ? res.V3.map((v) => v / (e.G * e.As3)) : undefined;
+      const u2 = integrateDeflection(res.x, res.M3.map((m) => m / (e.E * e.I33)), ul[1], ul[7], gs2);
+      const u3 = integrateDeflection(res.x, res.M2.map((m) => -m / (e.E * e.I22)), ul[2], ul[8], gs3);
       const [a1, a2, a3] = e.axes;
       for (let k = 0; k < res.x.length; k++) {
         const v: Vec3 = [

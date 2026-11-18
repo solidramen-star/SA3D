@@ -12,7 +12,7 @@ import { alertDialog, closeMenus, confirmDialog, dialogOpen, h, isMenuOpenFor, s
 import * as D from './dialogs';
 import { renderInspector } from './inspector';
 import { UNIT_SYSTEMS, fmtU, onUnitsChange, setUnits, uLabel, units, type UnitSystemId } from '../model/units';
-import { APP_VERSION, APP_UPDATE_DATE } from '../version';
+import { APP_VERSION, APP_UPDATE_DATE, CHANGELOG } from '../version';
 
 type SelectMode = 'replace' | 'add' | 'toggle';
 
@@ -843,6 +843,15 @@ export class App {
       { heading: 'Show' },
       ...RESULT_VIEWS.map(([v, l]) => view(v, l)),
       { separator: true },
+      {
+        label: 'Frame diagram…',
+        disabled: noRes,
+        action: () => {
+          const fr = this.selected().frames;
+          if (fr.length === 1) D.frameDiagramsDialog(this, fr[0]);
+          else toast(fr.length ? 'Select only one frame to show its diagrams' : 'Select one frame first, then choose Analyze ▸ Frame diagram', 'warn');
+        },
+      },
       { label: 'Result tables…', action: () => D.resultsTablesDialog(this), disabled: noRes },
       {
         label: 'Clear results',
@@ -891,10 +900,32 @@ export class App {
       { separator: true },
       {
         label: 'About',
-        action: () => void alertDialog(
-          'About StructApp 3D',
-          `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nTouch-friendly 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases).`
-        ),
+        action: () =>
+          void alertDialog(
+            'About StructApp 3D',
+            h(
+              'div',
+              { class: 'about' },
+              h(
+                'p',
+                { class: 'msg' },
+                `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nTouch-friendly 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases and shear deformation).`,
+              ),
+              h('h3', null, 'Version history'),
+              h(
+                'div',
+                { class: 'changelog', tabindex: '0', 'aria-label': 'Version history' },
+                ...CHANGELOG.map((e) =>
+                  h(
+                    'section',
+                    null,
+                    h('h4', null, /^\d/.test(e.version) ? `v${e.version}` : `${e.version} release`, h('span', { class: 'date' }, e.date)),
+                    h('ul', null, ...e.changes.map((c) => h('li', null, c))),
+                  ),
+                ),
+              ),
+            ),
+          ),
       },
     ];
   }

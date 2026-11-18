@@ -260,8 +260,8 @@ export function defineSections(app: App): void {
       const p = sectionProps(s);
       propsBox.replaceChildren(
         listTable(
-          [`A (${uLabel('A')})`, `I33 (${uLabel('L4')})`, `I22 (${uLabel('L4')})`, `J (${uLabel('L4')})`],
-          [[fmtU(p.A, 'A'), fmtU(p.I33, 'L4'), fmtU(p.I22, 'L4'), fmtU(p.J, 'L4')].map((v) => document.createTextNode(v))],
+          [`A (${uLabel('A')})`, `I33 (${uLabel('L4')})`, `I22 (${uLabel('L4')})`, `J (${uLabel('L4')})`, `As2 (${uLabel('A')})`, `As3 (${uLabel('A')})`],
+          [[fmtU(p.A, 'A'), fmtU(p.I33, 'L4'), fmtU(p.I22, 'L4'), fmtU(p.J, 'L4'), fmtU(p.As2, 'A'), fmtU(p.As3, 'A')].map((v) => document.createTextNode(v))],
         ),
       );
     };

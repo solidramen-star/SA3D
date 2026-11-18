@@ -1,3 +1,6 @@
 node_modules/
 .DS_Store
 *.log
+
+# Personal ETABS verification files (kept outside the repo)
+ETABS Verif/

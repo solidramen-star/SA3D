@@ -191,7 +191,7 @@ function framePanel(app: App, id: number): Node[] {
       'Properties',
       mat.row,
       sec.row,
-      p ? h('p', { class: 'muted small' }, `A = ${withU(p.A, 'A', 4)}, I33 = ${withU(p.I33, 'L4', 4)}, I22 = ${withU(p.I22, 'L4', 4)}, J = ${withU(p.J, 'L4', 4)}`) : null,
+      p ? h('p', { class: 'muted small' }, `A = ${withU(p.A, 'A', 4)}, I33 = ${withU(p.I33, 'L4', 4)}, I22 = ${withU(p.I22, 'L4', 4)}, J = ${withU(p.J, 'L4', 4)}, As2 = ${withU(p.As2, 'A', 4)}, As3 = ${withU(p.As3, 'A', 4)}`) : null,
       beta.row,
       applyRow([beta], 'Apply β', (v) => void m.commit('beta', () => void (m.frame(id)!.beta = v[0]))),
     ),
