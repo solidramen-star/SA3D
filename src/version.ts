@@ -1,4 +1,4 @@
-export const APP_VERSION = '1.1.5';
+export const APP_VERSION = '1.1.6';
 export const APP_UPDATE_DATE = '2026-11-18';
 
 export interface ChangelogEntry {
@@ -9,6 +9,13 @@ export interface ChangelogEntry {
 
 /** Newest first. Shown in Help ▸ About. */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.1.6',
+    date: '2026-11-18',
+    changes: [
+      'Prevent Android soft keyboard flashing when selecting dropdown options or opening dialogs',
+    ],
+  },
   {
     version: '1.1.5',
     date: '2026-11-18',

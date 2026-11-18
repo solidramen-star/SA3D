@@ -90,7 +90,8 @@ export function textField(label: string, value: string): Field<string> {
 }
 
 export function selectField<T extends string>(label: string, options: [T, string][], value: T): Field<T> {
-  const input = h('select', null, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l)));
+  const input = h('select', null, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l))) as HTMLSelectElement;
+  input.addEventListener('change', () => input.blur());
   const row = h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), h('span', { class: 'field-input' }, input));
   return { row, input, get: () => input.value as T, set: (v) => (input.value = v) };
 }
@@ -152,9 +153,10 @@ export function openDialog(opts: { title: string; body: Node; buttons: DialogBut
   document.addEventListener('keydown', onKey, true);
   document.body.append(backdrop);
   openCount++;
-  // Focus the first field on devices with a keyboard; avoid popping the on-screen keyboard on touch.
-  if (matchMedia('(pointer: fine)').matches) {
-    const first = dlg.querySelector<HTMLElement>('.dlg-body input, .dlg-body select');
+  // Focus the first field on devices with a physical keyboard; avoid popping the on-screen keyboard on touch/mobile.
+  const isTouch = 'ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+  if (!isTouch && matchMedia('(pointer: fine)').matches) {
+    const first = dlg.querySelector<HTMLElement>('.dlg-body input:not([type="checkbox"]):not([type="radio"])');
     first?.focus();
   }
   return { close, el: dlg };
@@ -212,7 +214,19 @@ export interface MenuItem {
 
 let activeMenu: { el: HTMLElement; close: () => void } | null = null;
 
+// Prevent Android soft keyboard from popping up and immediately closing when a <select> option is chosen
+document.addEventListener(
+  'change',
+  (e) => {
+    if (e.target instanceof HTMLSelectElement) {
+      e.target.blur();
+    }
+  },
+  true,
+);
+
 export function closeMenus(): void {
+  (document.activeElement as HTMLElement)?.blur?.();
   activeMenu?.close();
 }
 
