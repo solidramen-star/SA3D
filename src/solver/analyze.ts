@@ -1,5 +1,5 @@
 import { sectionProps } from '../model/sections';
-import { DOF_NAMES, migrateModel, type Joint, type LoadCombo, type MemberReleases, type ModelData } from '../model/types';
+import { DOF_NAMES, migrateModel, releaseMechanismError, type Joint, type LoadCombo, type MemberReleases, type ModelData } from '../model/types';
 import {
   condenseFER,
   condenseStiffness,
@@ -75,6 +75,8 @@ interface Elem {
 }
 
 const STATIONS = 40;
+/** Values smaller than this fraction of a member's force/moment scale are treated as round-off and shown as 0. */
+const NOISE_REL = 1e-9;
 
 /** Add member FER for all loads on the member. */
 function memberFER(loads: MemberLoads, L: number, phi2 = 0, phi3 = 0): Float64Array {
@@ -123,6 +125,45 @@ function loadsLeftOf(loads: MemberLoads, x: number, inclusive: boolean): { F: Ve
 }
 
 /** Cumulative trapezoid integral of y over x. */
+/** Cyclic Jacobi eigen-decomposition of a small symmetric matrix; vectors[:, m] pairs with values[m]. */
+function symEigen(m: number[][]): { values: number[]; vectors: number[][] } {
+  const n = m.length;
+  const a = m.map((r) => [...r]);
+  const v: number[][] = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let off = 0;
+    for (let p = 0; p < n; p++) for (let q = p + 1; q < n; q++) off += a[p][q] * a[p][q];
+    if (off < 1e-30 * (1 + a.reduce((s, r, i) => s + r[i] * r[i], 0))) break;
+    for (let p = 0; p < n; p++)
+      for (let q = p + 1; q < n; q++) {
+        if (a[p][q] === 0) continue;
+        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
+        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1);
+        const s = t * c;
+        for (let k = 0; k < n; k++) {
+          const akp = a[k][p];
+          const akq = a[k][q];
+          a[k][p] = c * akp - s * akq;
+          a[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < n; k++) {
+          const apk = a[p][k];
+          const aqk = a[q][k];
+          a[p][k] = c * apk - s * aqk;
+          a[q][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < n; k++) {
+          const vkp = v[k][p];
+          const vkq = v[k][q];
+          v[k][p] = c * vkp - s * vkq;
+          v[k][q] = s * vkp + c * vkq;
+        }
+      }
+  }
+  return { values: a.map((r, i) => r[i]), vectors: v };
+}
+
 function cumtrapz(x: number[], y: number[]): number[] {
   const out = [0];
   for (let k = 1; k < x.length; k++) out.push(out[k - 1] + ((x[k] - x[k - 1]) * (y[k] + y[k - 1])) / 2);
@@ -308,6 +349,8 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
     const G = m.E / (2 * (1 + m.nu));
     const axes = localAxes(pi, pj, f.beta);
     const kl = localStiffness(m.E, G, sp.A, sp.I22, sp.I33, sp.J, L, sp.As2, sp.As3);
+    const relErr = releaseMechanismError(f.relI, f.relJ);
+    if (relErr) throw new SolverError(`Frame ${f.id}: ${relErr}`);
     const condInfo = condenseStiffness(kl, f.relI, f.relJ);
     if (!condInfo) {
       throw new SolverError(
@@ -372,8 +415,21 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       for (const v of eqs) if (v >= 0) heights[v] = Math.max(heights[v], v - mn);
     }
     K = new SkylineMatrix(heights);
+    // 3x3 rotational block per joint, used to find rotations no member resists
+    const rotBlock = new Float64Array(nJ * 9);
+    let maxRotDiag = 0;
     elems.forEach((e, n) => {
       const kg = globalStiffness(e.klCondensed, e.R);
+      for (const [ji, off] of [
+        [e.ji, 3],
+        [e.jj, 9],
+      ]) {
+        for (let a = 0; a < 3; a++) {
+          for (let b = 0; b < 3; b++) rotBlock[ji * 9 + a * 3 + b] += kg[(off + a) * 12 + off + b];
+          // scale from the unreleased element (a fully pinned truss has zero condensed rotational stiffness)
+          maxRotDiag = Math.max(maxRotDiag, Math.abs(e.kl[(off + a) * 12 + off + a]));
+        }
+      }
       const eqs = elemEqs[n];
       for (let r = 0; r < 12; r++) {
         const er = eqs[r];
@@ -385,6 +441,38 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
         }
       }
     });
+    // Joints where every connected member end is rotationally released (e.g. truss nodes) have a
+    // zero-stiffness rotation; add a tiny spring along that direction instead of failing as a mechanism.
+    if (maxRotDiag > 0) {
+      const tol = 1e-9 * maxRotDiag;
+      const kTiny = 1e-9 * maxRotDiag;
+      const stabilised: string[] = [];
+      for (let ji = 0; ji < nJ; ji++) {
+        const free = [0, 1, 2].filter((a) => eq[ji * 6 + 3 + a] >= 0);
+        if (!free.length) continue;
+        const sub = free.map((a) => free.map((b) => rotBlock[ji * 9 + a * 3 + b]));
+        const { values, vectors } = symEigen(sub);
+        let added = false;
+        values.forEach((lam, m) => {
+          if (lam >= tol) return;
+          added = true;
+          for (let a = 0; a < free.length; a++)
+            for (let b = 0; b < free.length; b++) {
+              const er = eq[ji * 6 + 3 + free[a]];
+              const ec = eq[ji * 6 + 3 + free[b]];
+              if (ec < er) continue;
+              K!.add(er, ec, kTiny * vectors[a][m] * vectors[b][m]);
+            }
+        });
+        if (added) stabilised.push(String(usedJoints[ji].id));
+      }
+      if (stabilised.length) {
+        const list = stabilised.length > 10 ? `${stabilised.slice(0, 10).join(', ')} … (${stabilised.length} total)` : stabilised.join(', ');
+        globalWarnings.push(
+          `Joint rotation not resisted by any member at joint(s) ${list}; stabilised automatically (joint moments there are not carried).`,
+        );
+      }
+    }
     const bad = K.factor();
     if (bad >= 0) {
       let where = `equation ${bad}`;
@@ -483,7 +571,14 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
         for (let c = 0; c < 12; c++) s += e.kl[r * 12 + c] * ul[c];
         f[r] = s;
       }
-      for (const relDof of e.condInfo.released) f[relDof] = 0;
+      // Released end forces are zero by static condensation; only round-off noise is cleaned here so
+      // that a genuine non-zero value (a bug) stays visible instead of being hidden.
+      let fScale = 0;
+      for (const k of [0, 1, 2, 6, 7, 8]) fScale = Math.max(fScale, Math.abs(f[k]));
+      let mScale = fScale * e.L;
+      for (const k of [3, 4, 5, 9, 10, 11]) mScale = Math.max(mScale, Math.abs(f[k]));
+      const cleanTol = (dof: number) => NOISE_REL * ((dof % 6) < 3 ? fScale : mScale);
+      for (const relDof of e.condInfo.released) if (Math.abs(f[relDof]) < cleanTol(relDof)) f[relDof] = 0;
 
       const fg = toGlobal12(e.R, f);
       for (let k = 0; k < 6; k++) {
@@ -521,24 +616,16 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
         res.M2.push(Mx[1]);
         res.M3.push(Mx[2]);
       }
-      if (res.x.length > 0) {
-        const last = res.x.length - 1;
-        if (e.relI) {
-          if (e.relI[0]) res.P[0] = 0;
-          if (e.relI[1]) res.V2[0] = 0;
-          if (e.relI[2]) res.V3[0] = 0;
-          if (e.relI[3]) res.T[0] = 0;
-          if (e.relI[4]) res.M2[0] = 0;
-          if (e.relI[5]) res.M3[0] = 0;
-        }
-        if (e.relJ) {
-          if (e.relJ[0]) res.P[last] = 0;
-          if (e.relJ[1]) res.V2[last] = 0;
-          if (e.relJ[2]) res.V3[last] = 0;
-          if (e.relJ[3]) res.T[last] = 0;
-          if (e.relJ[4]) res.M2[last] = 0;
-          if (e.relJ[5]) res.M3[last] = 0;
-        }
+      // Round-off cleanup of diagram values (e.g. the moment at a released end), relative to the member's force scale
+      {
+        const maxAbs = (arrs: number[][]) => arrs.reduce((m, a) => a.reduce((mm, v) => Math.max(mm, Math.abs(v)), m), 0);
+        const fs = Math.max(fScale, maxAbs([res.P, res.V2, res.V3]));
+        const ms = Math.max(mScale, fs * e.L, maxAbs([res.T, res.M2, res.M3]));
+        const clean = (a: number[], tol: number) => {
+          for (let k = 0; k < a.length; k++) if (Math.abs(a[k]) < tol) a[k] = 0;
+        };
+        for (const a of [res.P, res.V2, res.V3]) clean(a, NOISE_REL * fs);
+        for (const a of [res.T, res.M2, res.M3]) clean(a, NOISE_REL * ms);
       }
       // axial: u' = N/EA, integrated once with a linear correction to match end values
       const ax = cumtrapz(res.x, res.P.map((p) => p / (e.E * e.A)));

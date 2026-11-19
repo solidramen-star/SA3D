@@ -194,8 +194,8 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 ## 🧪 Verification & Benchmark Strategy
 
 Every solver enhancement must pass automated tests in `tests/` and ETABS benchmark verifications:
-1. **Truss Verification (`tests/truss.test.ts`):** Compare pinned-end plane truss internal axial forces against method of joints / ETABS.
-2. **Member Release Verification:** Simple beam with central point load and moment releases at both ends confirms zero end moments and $wL^2/8$ span moment.
+1. **Truss Verification (`tests/releases.test.ts`):** Compare pinned-end plane truss internal axial forces against method of joints / ETABS, including a truss whose joint rotations are not restrained (auto-stabilised).
+2. **Member Release Verification (`tests/releases.test.ts`):** Beam between two **fixed** supports with M3 released at both ends under a **uniform** load $w$ must match a simply supported beam: zero end moments and $wL^2/8$ at midspan. (A central **point** load $P$ gives $PL/4$ instead.)
 3. **P-Delta Verification:** Column under gravity load with lateral tip load checked against Euler secondary magnification formula:
    $$\delta = \frac{\delta_0}{1 - P / P_{cr}}$$
 4. **ETABS Benchmark Models:** Maintain benchmark files in `ETABS Verif/` to ensure agreement within $< 0.1\%$ discrepancy.
@@ -207,6 +207,7 @@ Every solver enhancement must pass automated tests in `tests/` and ETABS benchma
 Corrections and gaps found when checking this plan against the current source. Resolve these before implementing each item.
 
 ### Phase 1
+- ✅ **Resolved in v1.1.7** – all four 1.1 notes below: joint rotations with no rotational stiffness get a tiny automatic spring (with a warning listing the joints); the Assign Releases dialog, the analysis and the `.sav` reader reject P/V2/V3/T released at both ends; the Pin-Pin (Truss) preset releases T at End I only; released end values are no longer forced to zero (only round-off below 1e-9 of the member's force scale is cleaned); unknown `Rel_I`/`Rel_J` text is a `.sav` error with the line number. Tests: `tests/releases.test.ts` → "Release review fixes (v1.1.7)".
 - **1.1 Releases – stability:** the solver already stops with "The structure is unstable (mechanism)" when a DOF has no stiffness (`analyze.ts`). With Pin-Pin members, a joint that only connects to truss members has free rotations, so the solver will reject it. Choose one: (a) automatically restrain or add a tiny stiffness to joint rotations that have no rotational stiffness (what ETABS/SAP2000 do), or (b) show a clear warning. Releasing **T** or **V2/V3** at *both* ends is always a mechanism, so the dialog must block it.
 - **1.1 "Pin-Pin (Truss)" preset:** release M2 + M3 at both ends and **T at end i only**. Releasing T at both ends is unstable.
 - **1.1 Diagrams:** `solver/diagram.ts` only samples values and needs no "zeroing". If the condensed stiffness and condensed fixed-end forces are correct, the end moments come out as zero on their own. Member deflections are already integrated from curvature using the end displacements (`integrateDeflection`), so hinge rotations need no special handling. Add a test that checks this.
@@ -246,8 +247,29 @@ Corrections and gaps found when checking this plan against the current source. R
 
 ### Compatibility matrix / verification
 - Add rows for Phase 4 (Material Fy, frame design parameters, case types) and mass source (modal).
-- **Release test 2 is inconsistent:** a central *point* load gives PL/4, while **wL²/8** is for a *uniform* load. Use a beam between two **fixed** supports with M3 released at both ends, so it must match the simply supported result.
+- ✅ **Release test 2 (resolved in v1.1.7 – wording fixed above):** a central *point* load gives PL/4, while **wL²/8** is for a *uniform* load. Use a beam between two **fixed** supports with M3 released at both ends, so it must match the simply supported result.
 - `ETABS Verif/` currently holds `Test 1.xlsx` only. Add a `.sav` model per benchmark next to its ETABS result.
 
 ### Suggested branch order
 `feature/phase1-core-mechanics` (this branch): 1.1 releases → 1.2 springs (+ settlements) → 1.3 snapping. Each item gets tests and README updates, then a merge to `main` and a tag (`v1.1`).
+
+#### App versioning rule (applies to every update)
+The app version has the form `v1.P.N`. Pick `P` from the roadmap phase that the update belongs to:
+
+| Roadmap phase | App version range | Example |
+|---|---|---|
+| Phase 1 (items 1.1, 1.2, 1.3, plus Phase 1 fixes) | `v1.1.N` | `v1.1.5` → `v1.1.6` |
+| Phase 2 (items 2.1, 2.2, 2.3) | `v1.2.N` | first Phase 2 release = `v1.2.0` |
+| Phase 3 (items 3.1, 3.2, 3.3) | `v1.3.N` | first Phase 3 release = `v1.3.0` |
+| Phase 4 (design & code checks) | `v1.4.N` | first Phase 4 release = `v1.4.0` |
+
+Follow these rules for every update:
+1. **The roadmap item number is not the app version.** Roadmap item "1.2 Elastic Spring Supports" is still Phase 1, so it ships as `v1.1.N`, **not** `v1.2.x`.
+2. **Updates inside the current phase:** increase `N` by 1 for each release, whether it is a feature, a fix or a UI tweak. For example, `v1.1.6` becomes `v1.1.7`. `N` has no upper limit: `v1.1.9` is followed by `v1.1.10`.
+3. **The first release of a new phase:** set `P` to the phase number and reset `N` to 0. For example, the first Phase 2 release is `v1.2.0`.
+4. **A fix to an earlier phase after a later phase has started:** use the current highest version series. For example, a Phase 1 bug fix released while the app is at `v1.2.3` ships as `v1.2.4`. Versions never go backwards.
+5. **Where to change the version** (all three must match):
+   - `package.json` / `package-lock.json`: run `npm version 1.P.N --no-git-tag-version`.
+   - `src/version.ts`: set `APP_VERSION` and `APP_UPDATE_DATE` (YYYY-MM-DD).
+   - `src/version.ts`: add a new entry at the **top** of the `CHANGELOG` array.
+6. **Commit and deploy:** rebuild `dist/` and commit with a message that includes the version, e.g. `Release v1.1.7: ...`. Push the source to `main`. Then deploy `dist/` to `gh-pages` with the commit message `Deploy v1.P.N to GitHub Pages`.

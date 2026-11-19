@@ -655,12 +655,17 @@ body.busy * {
   gap: 6px;
   margin: 6px 0;
 }
-.chk-row,
-.restraints,
-.releases-group {
+.chk-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0 4px;
+}
+.restraints,
+.releases-group {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
 }
 .muted {
   color: var(--muted);

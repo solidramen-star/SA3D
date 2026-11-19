@@ -18,6 +18,9 @@ import {
   LOAD_DIRS,
   LOAD_DIR_LABEL,
   RELEASE_DOFS,
+  TRUSS_RELEASES_I,
+  TRUSS_RELEASES_J,
+  releaseMechanismError,
   type AreaDistribution,
   type LoadCase,
   type LoadCaseType,
@@ -499,7 +502,7 @@ export function assignFrameReleases(app: App): void {
     'div',
     { class: 'chips' },
     btn('Rigid - Rigid (Continuous)', () => setPresets(undefined, undefined)),
-    btn('Pin - Pin (Truss)', () => setPresets([false, false, false, false, true, true], [false, false, false, false, true, true])),
+    btn('Pin - Pin (Truss)', () => setPresets(TRUSS_RELEASES_I, TRUSS_RELEASES_J)),
     btn('Pin - Rigid (Hinge at I)', () => setPresets([false, false, false, false, true, true], undefined)),
     btn('Rigid - Pin (Hinge at J)', () => setPresets(undefined, [false, false, false, false, true, true])),
   );
@@ -513,7 +516,11 @@ export function assignFrameReleases(app: App): void {
       presets,
       rcI.el,
       rcJ.el,
-      h('p', { class: 'muted small' }, 'Checked DOFs are released (zero moment / shear / axial / torsion).'),
+      h(
+        'p',
+        { class: 'muted small' },
+        'Checked DOFs are released (zero moment / shear / axial / torsion). P, V2, V3 and T cannot be released at both ends. Truss preset releases T at End I only.',
+      ),
     ),
     buttons: [
       { label: 'Cancel' },
@@ -523,6 +530,8 @@ export function assignFrameReleases(app: App): void {
         action: () => {
           const relI = rcI.get();
           const relJ = rcJ.get();
+          const mech = releaseMechanismError(relI, relJ);
+          if (mech) return fail(mech);
           app.model.commit('assign releases', (dd) => {
             for (const f of dd.frames) {
               if (ids.includes(f.id)) {

@@ -6,6 +6,7 @@ import {
   LOAD_DIRS,
   migrateModel,
   parseReleases,
+  releaseMechanismError,
   type Frame,
   type LoadCaseType,
   type LoadDir,
@@ -403,8 +404,17 @@ export function readSav(text: string, info?: SavInfo): ModelData {
     return id;
   };
   d.frames = rowsOf('FRAMES').map((r) => {
-    const relI = parseReleases(r.str('Rel_I', -1, 'None'));
-    const relJ = parseReleases(r.str('Rel_J', -1, 'None'));
+    const rel = (col: 'Rel_I' | 'Rel_J') => {
+      try {
+        return parseReleases(r.str(col, -1, 'None'));
+      } catch (e) {
+        throw new SavError(`Line ${r.line} (FRAMES): ${(e as Error).message} (column ${col})`);
+      }
+    };
+    const relI = rel('Rel_I');
+    const relJ = rel('Rel_J');
+    const mech = releaseMechanismError(relI, relJ);
+    if (mech) throw new SavError(`Line ${r.line} (FRAMES): ${mech}`);
     const f: Frame = {
       id: r.num('ID', 0),
       i: needJoint(r.num('JointI', 1), r, 'FRAMES'),

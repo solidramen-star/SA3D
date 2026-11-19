@@ -1,5 +1,5 @@
-export const APP_VERSION = '1.1.6';
-export const APP_UPDATE_DATE = '2026-11-18';
+export const APP_VERSION = '1.1.7';
+export const APP_UPDATE_DATE = '2026-11-19';
 
 export interface ChangelogEntry {
   version: string;
@@ -9,6 +9,18 @@ export interface ChangelogEntry {
 
 /** Newest first. Shown in Help ▸ About. */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.1.7',
+    date: '2026-11-19',
+    changes: [
+      'Pin-jointed trusses no longer need restrained joint rotations: unresisted joint rotations are stabilised automatically (with a warning)',
+      'Pin - Pin (Truss) preset now releases T at End I only (M2 M3 at both ends)',
+      'Releasing P, V2, V3 or T at both ends is blocked in the dialog, the analysis and the .sav reader',
+      'Unknown end-release text in a .sav file is now an error with the line number',
+      'Released end values are computed, not forced to zero (only round-off is cleaned)',
+      'Support and release dialogs: Translations / Rotations (and End I / End J) checkboxes now sit on their own rows under their labels',
+    ],
+  },
   {
     version: '1.1.6',
     date: '2026-11-18',

@@ -56,6 +56,20 @@ export type MemberReleases = [boolean, boolean, boolean, boolean, boolean, boole
 
 export const NO_RELEASES: MemberReleases = [false, false, false, false, false, false];
 export const PIN_RELEASES: MemberReleases = [false, false, false, false, true, true]; // M2 & M3 released
+// Truss member: torsion released at end I only (releasing T at both ends is a mechanism)
+export const TRUSS_RELEASES_I: MemberReleases = [false, false, false, true, true, true];
+export const TRUSS_RELEASES_J: MemberReleases = PIN_RELEASES;
+
+/**
+ * Returns an error message when the release combination makes the member itself a mechanism
+ * (P, V2, V3 or T released at both ends), otherwise null.
+ */
+export function releaseMechanismError(relI?: MemberReleases, relJ?: MemberReleases): string | null {
+  if (!relI || !relJ) return null;
+  const bad = RELEASE_DOFS.slice(0, 4).filter((_, k) => relI[k] && relJ[k]);
+  if (!bad.length) return null;
+  return `${bad.join(', ')} cannot be released at both ends – the member would be unstable (a mechanism).`;
+}
 
 export function hasMemberReleases(rel?: MemberReleases): boolean {
   return !!rel && rel.some(Boolean);
@@ -73,6 +87,9 @@ export function formatReleases(rel?: MemberReleases): string {
   return tokens.join(' ');
 }
 
+const RELEASE_TOKENS = new Set(['P', 'U1', 'AXIAL', 'V2', 'U2', 'V3', 'U3', 'T', 'R1', 'TORSION', 'M2', 'R2', 'M3', 'R3']);
+
+/** Parses a `.sav` release cell. Throws on unknown text. */
 export function parseReleases(str?: string): MemberReleases | undefined {
   if (!str) return undefined;
   const s = str.trim().toUpperCase();
@@ -80,7 +97,10 @@ export function parseReleases(str?: string): MemberReleases | undefined {
   if (s === 'PIN' || s === 'PINNED' || s === 'HINGE') {
     return [false, false, false, false, true, true];
   }
-  const tokens = new Set(s.split(/[\s,;|+]+/).map((t) => t.trim().toUpperCase()));
+  const tokens = new Set(s.split(/[\s,;|+]+/).map((t) => t.trim().toUpperCase()).filter(Boolean));
+  const unknown = [...tokens].filter((t) => !RELEASE_TOKENS.has(t));
+  if (unknown.length)
+    throw new Error(`unknown release '${unknown.join(' ')}'. Use None, Pin, or any of P V2 V3 T M2 M3.`);
   const rel: MemberReleases = [
     tokens.has('P') || tokens.has('U1') || tokens.has('AXIAL'),
     tokens.has('V2') || tokens.has('U2'),

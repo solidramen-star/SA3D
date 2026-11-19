@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { defaultModel, FIXED, type MemberReleases, type ModelData, type Restraint } from '../src/model/types';
+import {
+  defaultModel,
+  FIXED,
+  releaseMechanismError,
+  TRUSS_RELEASES_I,
+  TRUSS_RELEASES_J,
+  type MemberReleases, type ModelData, type Restraint } from '../src/model/types';
 import { analyze } from '../src/solver/analyze';
 import { condenseStiffness, localStiffness, solveDenseLinearSystem } from '../src/solver/frame3d';
 import { readSav, writeSav } from '../src/io/savFormat';
@@ -240,5 +246,97 @@ ID,JointI,JointJ,Material,Section,Beta (deg),Length (m)
     expect(mOld.frames.length).toBe(1);
     expect(mOld.frames[0].relI).toBeUndefined();
     expect(mOld.frames[0].relJ).toBeUndefined();
+  });
+});
+
+describe('Release review fixes (v1.1.7)', () => {
+  const PIN_XYZ: Restraint = [true, true, true, false, false, false];
+
+  function planarTruss(rollerUX: boolean): ModelData {
+    // Same triangle as the benchmark above, but with ideal pins: joint rotations are NOT restrained
+    const m = base();
+    joint(m, 1, 0, 0, 0, [...PIN_XYZ] as Restraint);
+    joint(m, 2, 4, 0, 0, rollerUX ? [false, true, true, false, false, false] : [false, true, false, false, false, false]);
+    joint(m, 3, 2, 0, 2, [false, true, false, false, false, false]);
+    frame(m, 1, 1, 2, TRUSS_RELEASES_I, TRUSS_RELEASES_J);
+    frame(m, 2, 1, 3, TRUSS_RELEASES_I, TRUSS_RELEASES_J);
+    frame(m, 3, 3, 2, TRUSS_RELEASES_I, TRUSS_RELEASES_J);
+    m.jointLoads.push({ case: 'DEAD', joint: 3, f: [0, 0, -20, 0, 0, 0] });
+    return m;
+  }
+
+  it('truss preset releases torsion at End I only, and is a valid combination', () => {
+    expect(TRUSS_RELEASES_I).toEqual([false, false, false, true, true, true]);
+    expect(TRUSS_RELEASES_J).toEqual([false, false, false, false, true, true]);
+    expect(releaseMechanismError(TRUSS_RELEASES_I, TRUSS_RELEASES_J)).toBeNull();
+    const bothT: MemberReleases = [false, false, false, true, true, true];
+    expect(releaseMechanismError(bothT, bothT)).toMatch(/T cannot be released at both ends/);
+    expect(releaseMechanismError([true, true, false, false, false, false], [true, true, false, false, false, false])).toMatch(
+      /P, V2 cannot/,
+    );
+  });
+
+  it('pin-jointed truss solves without restraining joint rotations (auto-stabilised, with warning)', () => {
+    const r = analyze(planarTruss(true));
+    close(r.reactions[1][2], 10);
+    close(r.reactions[2][2], 10);
+    close(r.frames[1].P[0], -10 * Math.SQRT2);
+    close(r.frames[2].P[0], -10 * Math.SQRT2);
+    close(r.frames[0].P[0], 10);
+    for (const fr of r.frames) {
+      for (const v of [...fr.M2, ...fr.M3, ...fr.T]) close(v, 0, 1e-4, 1e-7);
+      expect(fr.M3[0]).toBe(0);
+      expect(fr.M3[fr.M3.length - 1]).toBe(0);
+    }
+    expect(r.warnings.some((w) => /Joint rotation not resisted/.test(w))).toBe(true);
+  });
+
+  it('skewed 3D truss (tetrapod) solves with pin releases and equilibrium holds', () => {
+    const m = base();
+    joint(m, 1, 0, 0, 0, [...PIN_XYZ] as Restraint);
+    joint(m, 2, 5, 1, 0, [...PIN_XYZ] as Restraint);
+    joint(m, 3, 1.5, 4, 0.5, [...PIN_XYZ] as Restraint);
+    joint(m, 4, 2.2, 1.7, 3.1);
+    frame(m, 1, 1, 4, TRUSS_RELEASES_I, TRUSS_RELEASES_J);
+    frame(m, 2, 4, 2, TRUSS_RELEASES_I, TRUSS_RELEASES_J);
+    frame(m, 3, 3, 4, TRUSS_RELEASES_I, TRUSS_RELEASES_J);
+    const F = [7, -4, -25];
+    m.jointLoads.push({ case: 'DEAD', joint: 4, f: [F[0], F[1], F[2], 0, 0, 0] });
+    const r = analyze(m);
+    for (let k = 0; k < 3; k++) close(r.reactions[1][k] + r.reactions[2][k] + r.reactions[3][k], -F[k], 1e-6, 1e-6);
+    for (const fr of r.frames) {
+      for (const v of [...fr.M2, ...fr.M3, ...fr.T, ...fr.V2, ...fr.V3]) close(v, 0, 1e-4, 1e-6);
+      // constant axial force along each member
+      for (const p of fr.P) close(p, fr.P[0], 1e-6, 1e-6);
+    }
+  });
+
+  it('a truss missing a support is still reported as unstable', () => {
+    expect(() => analyze(planarTruss(false))).toThrow(/unstable/);
+  });
+
+  it('analysis rejects P/V2/V3/T released at both ends with a clear message', () => {
+    const m = base();
+    joint(m, 1, 0, 0, 0, [...FIXED] as Restraint);
+    joint(m, 2, 3, 0, 0, [...FIXED] as Restraint);
+    const relT: MemberReleases = [false, false, false, true, false, false];
+    frame(m, 1, 1, 2, relT, relT);
+    expect(() => analyze(m)).toThrow(/Frame 1: T cannot be released at both ends/);
+  });
+
+  it('.sav reader reports unknown release text and both-end mechanisms with the line number', () => {
+    const m = base();
+    joint(m, 1, 0, 0, 0);
+    joint(m, 2, 5, 0, 0);
+    frame(m, 1, 1, 2, [false, false, false, false, true, true], undefined);
+    const text = writeSav(m);
+    expect(() => readSav(text.replace('M2 M3', 'M2 M4'))).toThrow(/Line \d+ \(FRAMES\): unknown release 'M4'/);
+
+    const m2 = base();
+    joint(m2, 1, 0, 0, 0);
+    joint(m2, 2, 5, 0, 0);
+    const relP: MemberReleases = [true, false, false, false, false, false];
+    frame(m2, 1, 1, 2, relP, relP);
+    expect(() => readSav(writeSav(m2))).toThrow(/Line \d+ \(FRAMES\): P cannot be released at both ends/);
   });
 });
