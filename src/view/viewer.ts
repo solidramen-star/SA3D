@@ -3,7 +3,7 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import type { Frame, Joint, LoadDir, ModelData, Section } from '../model/types';
+import { DOF_NAMES, type Frame, type Joint, type LoadDir, type ModelData, type Section } from '../model/types';
 import { channelOutline, sectionProps } from '../model/sections';
 import { localAxes, type Vec3 } from '../solver/frame3d';
 import type { FrameResult, Results } from '../solver/analyze';
@@ -457,7 +457,8 @@ export class Viewer {
     requestAnimationFrame((t) => {
       this.renderQueued = false;
       if (this.resultOpts.animate && this.deformed) {
-        const s = Math.sin(((t - this.animStart) / 1400) * Math.PI * 2);
+        // deformed (1) → undeformed (0) → deformed (1); never goes negative
+        const s = (1 + Math.cos(((t - this.animStart) / 1400) * Math.PI * 2)) / 2;
         this.applyDeformation(s);
         this.requestRender();
       }
@@ -707,7 +708,10 @@ export class Viewer {
     }
 
     if (this.display.showSupports) this.buildSupports(d);
-    if (this.display.showLoads && !(this.results && this.resultOpts.view !== 'none')) this.buildLoads(d, jm);
+    if (this.display.showLoads && !(this.results && this.resultOpts.view !== 'none')) {
+      this.buildLoads(d, jm);
+      this.buildDisplacements(d, jm);
+    }
   }
 
   private buildExtruded(d: ModelData, jm: Map<number, Joint>): void {
@@ -768,6 +772,7 @@ export class Viewer {
     const s = this.glyph();
     const col = this.theme.support;
     for (const j of d.joints) {
+      if (j.k) this.buildSprings(j, s, col);
       if (!j.r.some(Boolean)) continue;
       const allT = j.r[0] && j.r[1] && j.r[2];
       const allR = j.r[3] && j.r[4] && j.r[5];
@@ -794,6 +799,73 @@ export class Viewer {
         mesh = g;
       }
       this.modelGroup.add(mesh);
+    }
+  }
+
+  /** Zig-zag coils for translational springs and flat spirals for rotational springs (unrestrained DOFs only). */
+  private buildSprings(j: Joint, s: number, col: number): void {
+    const p = v3(j);
+    const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+    const perpOf = (a: THREE.Vector3) => (Math.abs(a.z) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1));
+    for (let k = 0; k < 3; k++) {
+      if (!(j.k![k] > 0) || j.r[k]) continue;
+      const a = axes[k].clone().negate();
+      const u = perpOf(a);
+      const len = s * 1.8;
+      const n = 6;
+      const pts: THREE.Vector3[] = [p.clone(), p.clone().addScaledVector(a, len * 0.15)];
+      for (let i = 1; i < n; i++) pts.push(p.clone().addScaledVector(a, len * (0.15 + (0.7 * i) / n)).addScaledVector(u, (i % 2 ? 1 : -1) * s * 0.3));
+      pts.push(p.clone().addScaledVector(a, len * 0.85), p.clone().addScaledVector(a, len));
+      const pos: number[] = [];
+      for (let i = 0; i < pts.length - 1; i++) pos.push(...pts[i].toArray(), ...pts[i + 1].toArray());
+      const end = p.clone().addScaledVector(a, len);
+      const w = new THREE.Vector3().crossVectors(a, u);
+      for (const v of [u, w]) pos.push(...end.clone().addScaledVector(v, -s * 0.4).toArray(), ...end.clone().addScaledVector(v, s * 0.4).toArray());
+      this.modelGroup.add(this.lines(pos, col, 2));
+    }
+    for (let k = 3; k < 6; k++) {
+      if (!(j.k![k] > 0) || j.r[k]) continue;
+      const a = axes[k - 3];
+      const u = perpOf(a);
+      const w = new THREE.Vector3().crossVectors(a, u);
+      const pos: number[] = [];
+      let prev: THREE.Vector3 | null = null;
+      for (let i = 0; i <= 40; i++) {
+        const t = (i / 40) * Math.PI * 4;
+        const r = s * (0.15 + (0.55 * i) / 40);
+        const q = p.clone().addScaledVector(u, Math.cos(t) * r).addScaledVector(w, Math.sin(t) * r).addScaledVector(a, s * 0.4);
+        if (prev) pos.push(...prev.toArray(), ...q.toArray());
+        prev = q;
+      }
+      this.modelGroup.add(this.lines(pos, col, 1.5));
+    }
+  }
+
+  private buildDisplacements(d: ModelData, jm: Map<number, Joint>): void {
+    const s = this.glyph();
+    const col = 0xa855f7;
+    const L = s * 3;
+    // Compact multiline stack per joint (like joint loads), placed at the arrow head
+    const byJoint = new Map<number, { p: THREE.Vector3; dir: THREE.Vector3; lines: string[] }>();
+    for (const l of d.jointDisplacements) {
+      const j = jm.get(l.joint);
+      if (!j) continue;
+      const p = v3(j);
+      const t = new THREE.Vector3(l.d[0], l.d[1], l.d[2]);
+      const hasT = t.lengthSq() > 0;
+      const dir = hasT ? t.clone().normalize() : new THREE.Vector3(0, 0, 1);
+      if (hasT) this.modelGroup.add(this.arrow(p, p.clone().addScaledVector(dir, L * 0.8), col, 2.5, true));
+      const casePrefix = l.case ? `${l.case}: ` : '';
+      const lines = l.d
+        .map((v, k) => (v ? `${casePrefix}${DOF_NAMES[k]} ${k < 3 ? withU(v, 'L', 3) : fmt(v, 4) + ' rad'}` : ''))
+        .filter(Boolean);
+      if (!lines.length) continue;
+      let e = byJoint.get(l.joint);
+      if (!e) byJoint.set(l.joint, (e = { p, dir, lines: [] }));
+      e.lines.push(...lines);
+    }
+    if (this.display.loadValues) {
+      for (const e of byJoint.values()) this.modelGroup.add(this.label(e.lines.join('\n'), e.p.clone().addScaledVector(e.dir, L), 'load disp'));
     }
   }
 

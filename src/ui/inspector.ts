@@ -1,8 +1,8 @@
 import type { App } from './app';
 import { checkField, h, numField, selectField, toast } from './dom';
-import { assignFrameReleases, restraintText } from './dialogs';
+import { assignFrameReleases, restraintText, springText } from './dialogs';
 import { frameDiagramsDialog } from './diagrams';
-import { DOF_NAMES, formatReleases, LOAD_DIR_LABEL, type AreaDistribution, type Restraint } from '../model/types';
+import { DOF_NAMES, formatReleases, hasSprings, LOAD_DIR_LABEL, type AreaDistribution, type Restraint } from '../model/types';
 import { SHAPE_LABEL, sectionProps } from '../model/sections';
 import { fmt, fmtU, uLabel, withU } from '../model/units';
 
@@ -47,7 +47,8 @@ function summary(app: App): Node[] {
         ['Frames', String(d.frames.length)],
         ['Areas', String(d.areas.length)],
         ['Supported joints', String(d.joints.filter((j) => j.r.some(Boolean)).length)],
-        ['Loads', String(d.jointLoads.length + d.framePointLoads.length + d.frameUniformLoads.length + d.areaLoads.length)],
+        ['Spring joints', String(d.joints.filter(hasSprings).length)],
+        ['Loads', String(d.jointLoads.length + d.jointDisplacements.length + d.framePointLoads.length + d.frameUniformLoads.length + d.areaLoads.length)],
         ['Self weight', d.settings.selfWeight ? 'Included' : 'Off'],
       ]),
     ),
@@ -110,6 +111,7 @@ function jointPanel(app: App, id: number): Node[] {
     ),
   );
   const loads = m.data.jointLoads.filter((l) => l.joint === id);
+  const disps = m.data.jointDisplacements.filter((l) => l.joint === id);
   const out: Node[] = [
     h('h2', { class: 'insp-title' }, `Joint ${id}`),
     section(
@@ -118,6 +120,25 @@ function jointPanel(app: App, id: number): Node[] {
       applyRow([x, y, z], 'Apply', (v) => m.moveJoints(new Set([id]), v[0] - j.x, v[1] - j.y, v[2] - j.z)),
     ),
     section('Support (' + restraintText(j.r) + ')', presets, h('div', { class: 'chk-row wrap' }, ...checks.map((c) => c.row))),
+    section(
+      'Springs',
+      h('p', { class: 'muted small' }, springText(j.k) + (j.k ? ` (${uLabel('FL')}, ${uLabel('MR')})` : '')),
+      h(
+        'div',
+        { class: 'row-btns' },
+        smallBtn('Edit springs…', () => app.cmd('assignSpring')),
+        j.k
+          ? smallBtn(
+              'Remove',
+              () =>
+                m.commit('clear springs', () => {
+                  delete m.joint(id)!.k;
+                }),
+              'danger',
+            )
+          : null,
+      ),
+    ),
     section(
       'Joint loads',
       loads.length
@@ -143,6 +164,29 @@ function jointPanel(app: App, id: number): Node[] {
       ),
     ),
   ];
+  if (disps.length)
+    out.push(
+      section(
+        'Prescribed displacements',
+        table(
+          ['Case', ...['UX', 'UY', 'UZ'].map((t) => `${t} (${uLabel('L')})`), 'RX', 'RY', 'RZ'],
+          disps.map((l) => [l.case, ...l.d.map((v, k) => (k < 3 ? fmtU(v, 'L', 4) : fmt(v, 4)))]),
+        ),
+        h(
+          'div',
+          { class: 'row-btns' },
+          smallBtn('Edit…', () => app.cmd('jointDisp')),
+          smallBtn(
+            'Delete',
+            () =>
+              m.commit('delete joint displacements', (d) => {
+                d.jointDisplacements = d.jointDisplacements.filter((l) => l.joint !== id);
+              }),
+            'danger',
+          ),
+        ),
+      ),
+    );
   const conn = m.data.frames.filter((f) => f.i === id || f.j === id).map((f) => f.id);
   out.push(kv([['Connected frames', conn.length ? conn.join(', ') : 'None']]));
   const r = app.results;
@@ -345,7 +389,7 @@ function multiPanel(app: App, s: { joints: number[]; frames: number[]; areas: nu
     ]),
   ];
   const btns: Node[] = [];
-  if (s.joints.length) btns.push(smallBtn('Supports…', () => app.cmd('assignSupport')), smallBtn('Joint load…', () => app.cmd('jointLoad')));
+  if (s.joints.length) btns.push(smallBtn('Supports…', () => app.cmd('assignSupport')), smallBtn('Springs…', () => app.cmd('assignSpring')), smallBtn('Joint load…', () => app.cmd('jointLoad')));
   if (s.frames.length)
     btns.push(
       smallBtn('Material…', () => app.cmd('assignMaterial')),

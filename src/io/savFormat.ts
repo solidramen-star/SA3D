@@ -2,17 +2,20 @@ import {
   defaultModel,
   DOF_NAMES,
   formatReleases,
+  hasSprings,
   LOAD_CASE_TYPES,
   LOAD_DIRS,
   migrateModel,
   parseReleases,
   releaseMechanismError,
+  SPRING_NAMES,
   type Frame,
   type LoadCaseType,
   type LoadDir,
   type ModelData,
   type Restraint,
   type SectionShape,
+  type Springs,
   type WorkPlane,
 } from '../model/types';
 import { dimQty, sectionProps } from '../model/sections';
@@ -132,6 +135,11 @@ export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new
     ['Joint', ...DOF_NAMES],
     d.joints.filter((j) => j.r.some(Boolean)).map((j) => [j.id, ...j.r.map(yn)]),
   );
+  out += table(
+    'SPRINGS',
+    ['Joint', ...SPRING_NAMES.map((n, k) => `${n} (${un(k < 3 ? 'FL' : 'MR')})`)],
+    d.joints.filter(hasSprings).map((j) => [j.id, ...j.k!.map((v, k) => c(v, k < 3 ? 'FL' : 'MR'))]),
+  );
   const jm = new Map(d.joints.map((j) => [j.id, j]));
   out += table(
     'FRAMES',
@@ -162,6 +170,11 @@ export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new
     'JOINT LOADS',
     ['Joint', `FX (${F})`, `FY (${F})`, `FZ (${F})`, `MX (${M})`, `MY (${M})`, `MZ (${M})`, 'LoadCase'],
     d.jointLoads.map((l) => [l.joint, ...l.f.map((v, k) => c(v, k < 3 ? 'F' : 'M')), l.case]),
+  );
+  out += table(
+    'JOINT DISPLACEMENTS',
+    ['Joint', `UX (${L})`, `UY (${L})`, `UZ (${L})`, 'RX (rad)', 'RY (rad)', 'RZ (rad)', 'LoadCase'],
+    (d.jointDisplacements ?? []).map((l) => [l.joint, ...l.d.map((v, k) => (k < 3 ? c(v, 'L') : v)), l.case]),
   );
   out += table(
     'FRAME POINT LOADS',
@@ -399,6 +412,14 @@ export function readSav(text: string, info?: SavInfo): ModelData {
     if (!j) throw new SavError(`Line ${r.line} (JOINT RESTRAINTS): joint ${id} does not exist`);
     j.r = DOF_NAMES.map((n, k) => r.bool(n, k + 1)) as Restraint;
   }
+  for (const r of rowsOf('SPRINGS')) {
+    const id = r.num('Joint', 0);
+    const j = jm.get(id);
+    if (!j) throw new SavError(`Line ${r.line} (SPRINGS): joint ${id} does not exist`);
+    const k = SPRING_NAMES.map((n, i) => si(r.num(n, i + 1, 0), i < 3 ? 'FL' : 'MR')) as Springs;
+    if (k.some((v) => v < 0)) throw new SavError(`Line ${r.line} (SPRINGS): spring stiffness must not be negative`);
+    if (k.some((v) => v > 0)) j.k = k;
+  }
   const needJoint = (id: number, r: Row, t: string) => {
     if (!jm.has(id)) throw new SavError(`Line ${r.line} (${t}): joint ${id} does not exist`);
     return id;
@@ -478,6 +499,11 @@ export function readSav(text: string, info?: SavInfo): ModelData {
     case: caseOf(r),
     joint: needJoint(r.num('Joint', 0), r, 'JOINT LOADS'),
     f: ['FX', 'FY', 'FZ', 'MX', 'MY', 'MZ'].map((n, k) => si(r.num(n, k + 1, 0), k < 3 ? 'F' : 'M')) as [number, number, number, number, number, number],
+  }));
+  d.jointDisplacements = rowsOf('JOINT DISPLACEMENTS').map((r) => ({
+    case: caseOf(r),
+    joint: needJoint(r.num('Joint', 0), r, 'JOINT DISPLACEMENTS'),
+    d: DOF_NAMES.map((n, k) => (k < 3 ? si(r.num(n, k + 1, 0), 'L') : r.num(n, k + 1, 0))) as [number, number, number, number, number, number],
   }));
   d.framePointLoads = rowsOf('FRAME POINT LOADS').map((r) => ({
     case: caseOf(r),

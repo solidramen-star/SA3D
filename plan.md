@@ -70,6 +70,12 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
   - Add nodal translational springs ($K_x, K_y, K_z$ in $\text{kN/m}$) and rotational springs ($K_{rx}, K_{ry}, K_{rz}$ in $\text{kN}\cdot\text{m/rad}$) per joint.
   - In `src/solver/analyze.ts`, sum spring stiffness directly onto the diagonal of the global skyline stiffness matrix for unrestrained DOFs.
   - In `src/view/viewer.ts`, render coil spring glyphs for supported joints with elastic restraints.
+- **Prescribed displacements (settlement):**
+  - Stored per **load case** in `ModelData.jointDisplacements` (`{ case, joint, d: [UX, UY, UZ, RX, RY, RZ] }`), entered with **Loads → Joint displacement…**.
+  - A value acts only on a **restrained** DOF; a non-zero value on a free DOF is ignored with a warning.
+  - Solver: set $D$ at the restrained DOFs, subtract $K_{fr} D_r$ from the load vector (element by element, using the condensed element stiffness), solve for the free DOFs. Combinations superpose like loads.
+  - `.sav`: `TABLE,SPRINGS` (`Joint, Kx…Krz`) and `TABLE,JOINT DISPLACEMENTS` (`Joint, UX…RZ, LoadCase`); both optional.
+- **Status:** ✅ Done in v1.1.8 (tests: `tests/springs.test.ts`).
 
 ---
 
@@ -229,7 +235,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 | Feature | Primary Modules Affected | `.sav` Format Changes | Backward Compatible? |
 |---|---|---|---|
 | **Member Releases** | `model/types`, `solver/frame3d`, `ui/inspector`, `view/viewer` | Adds `Rel_I`, `Rel_J` to `TABLE,FRAMES` | ✅ Yes (defaults to Rigid) |
-| **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS` | ✅ Yes (ignored if omitted) |
+| **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS`, `TABLE,JOINT DISPLACEMENTS` | ✅ Yes (ignored if omitted) |
 | **Section Catalog** | `model/sections`, `ui/dialogs` | None (serializes standard dimensions) | ✅ Yes |
 | **DXF Import/Export** | `io/dxf.ts`, `ui/app` | None (populates `ModelData`) | ✅ Yes |
 | **P-Delta Analysis** | `solver/analyze`, `solver/frame3d` | Adds setting `PDelta,Yes/No` | ✅ Yes |

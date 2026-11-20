@@ -70,6 +70,12 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
   - Add nodal translational springs ($K_x, K_y, K_z$ in $\text{kN/m}$) and rotational springs ($K_{rx}, K_{ry}, K_{rz}$ in $\text{kN}\cdot\text{m/rad}$) per joint.
   - In `src/solver/analyze.ts`, sum spring stiffness directly onto the diagonal of the global skyline stiffness matrix for unrestrained DOFs.
   - In `src/view/viewer.ts`, render coil spring glyphs for supported joints with elastic restraints.
+- **Prescribed displacements (settlement):**
+  - Stored per **load case** in `ModelData.jointDisplacements` (`{ case, joint, d: [UX, UY, UZ, RX, RY, RZ] }`), entered with **Loads → Joint displacement…**.
+  - A value acts only on a **restrained** DOF; a non-zero value on a free DOF is ignored with a warning.
+  - Solver: set $D$ at the restrained DOFs, subtract $K_{fr} D_r$ from the load vector (element by element, using the condensed element stiffness), solve for the free DOFs. Combinations superpose like loads.
+  - `.sav`: `TABLE,SPRINGS` (`Joint, Kx…Krz`) and `TABLE,JOINT DISPLACEMENTS` (`Joint, UX…RZ, LoadCase`); both optional.
+- **Status:** ✅ Done in v1.1.8 (tests: `tests/springs.test.ts`).
 
 ---
 
@@ -229,7 +235,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 | Feature | Primary Modules Affected | `.sav` Format Changes | Backward Compatible? |
 |---|---|---|---|
 | **Member Releases** | `model/types`, `solver/frame3d`, `ui/inspector`, `view/viewer` | Adds `Rel_I`, `Rel_J` to `TABLE,FRAMES` | ✅ Yes (defaults to Rigid) |
-| **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS` | ✅ Yes (ignored if omitted) |
+| **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS`, `TABLE,JOINT DISPLACEMENTS` | ✅ Yes (ignored if omitted) |
 | **Section Catalog** | `model/sections`, `ui/dialogs` | None (serializes standard dimensions) | ✅ Yes |
 | **DXF Import/Export** | `io/dxf.ts`, `ui/app` | None (populates `ModelData`) | ✅ Yes |
 | **P-Delta Analysis** | `solver/analyze`, `solver/frame3d` | Adds setting `PDelta,Yes/No` | ✅ Yes |
@@ -259,6 +265,7 @@ Corrections and gaps found when checking this plan against the current source. R
 - **1.1 "Pin-Pin (Truss)" preset:** release M2 + M3 at both ends and **T at end i only**. Releasing T at both ends is unstable.
 - **1.1 Diagrams:** `solver/diagram.ts` only samples values and needs no "zeroing". If the condensed stiffness and condensed fixed-end forces are correct, the end moments come out as zero on their own. Member deflections are already integrated from curvature using the end displacements (`integrateDeflection`), so hinge rotations need no special handling. Add a test that checks this.
 - **1.1 `.sav` format:** fix the `Rel_I`/`Rel_J` cell format. Suggested: `None`, `Pin`, or space-separated DOF names (`M2 M3`). Unknown text → error with the row number.
+- ✅ **Resolved in v1.1.8** – both 1.2 notes below: new unit quantities force/length (`FL`) and moment/rad (`MR`); reactions include spring forces (−k·u) so ΣReaction = ΣLoad; a DOF that is restrained and also has a spring keeps the restraint (analysis warning); prescribed displacements belong to a load case and are saved in `TABLE,JOINT DISPLACEMENTS` with a `LoadCase` column.
 - **1.2 Springs:** need new unit quantities in `model/units.ts` (force/length, moment/rad). Reactions must include the spring forces (−k·u), otherwise the equilibrium check (3.2) fails. A DOF that is both restrained and has a spring should keep the restraint, and the UI should warn.
 - **1.2 Prescribed displacements:** the title mentions them, but there is no specification yet. They belong to a **load case** (like loads), not to the joint. They need a table such as `TABLE,JOINT DISPLACEMENTS` with a LoadCase column.
 - **1.3 Snapping:** `gestures.ts` already uses `navigator.vibrate?.(15)`; reuse it. Polar tracking must work within the current work plane (XY/XZ/YZ + elevation). Also consider snapping to area edges and frame intersections.

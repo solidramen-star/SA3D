@@ -18,6 +18,7 @@ import {
   LOAD_DIRS,
   LOAD_DIR_LABEL,
   RELEASE_DOFS,
+  SPRING_NAMES,
   TRUSS_RELEASES_I,
   TRUSS_RELEASES_J,
   releaseMechanismError,
@@ -31,6 +32,7 @@ import {
   type Restraint,
   type Section,
   type SectionShape,
+  type Springs,
   type SupportType,
   type WorkPlane,
 } from '../model/types';
@@ -584,6 +586,62 @@ export function assignSupports(app: App): void {
   });
 }
 
+export const springText = (k: Springs | undefined) =>
+  k && k.some((v) => v > 0) ? SPRING_NAMES.map((n, i) => (k[i] > 0 ? `${n} ${fmtU(k[i], i < 3 ? 'FL' : 'MR')}` : '')).filter(Boolean).join(', ') : 'None';
+
+export function assignSprings(app: App): void {
+  const ids = need(app, 'joints');
+  if (!ids) return;
+  const d = app.model.data;
+  const js = d.joints.filter((j) => ids.includes(j.id));
+  const same = (i: number) => js.every((j) => (j.k?.[i] ?? 0) === (js[0].k?.[i] ?? 0));
+  const fields = SPRING_NAMES.map((n, i) =>
+    numField(n, same(i) ? (js[0].k?.[i] ?? 0) : null, { q: i < 3 ? 'FL' : 'MR', min: 0, mixed: !same(i) }),
+  );
+  openDialog({
+    title: `Joint springs on ${ids.length} joint(s)`,
+    body: h(
+      'div',
+      { class: 'form' },
+      h('p', { class: 'muted small' }, 'Elastic supports along / about the global axes (0 = no spring). A spring on a DOF that is also restrained is ignored.'),
+      h('div', { class: 'muted small' }, 'Translational'),
+      h('div', { class: 'grid2' }, ...fields.slice(0, 3).map((f) => f.row)),
+      h('div', { class: 'muted small' }, 'Rotational'),
+      h('div', { class: 'grid2' }, ...fields.slice(3).map((f) => f.row)),
+    ),
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Clear',
+        kind: 'danger',
+        action: () => {
+          app.model.commit('clear springs', (dd) => {
+            for (const j of dd.joints) if (ids.includes(j.id)) delete j.k;
+          });
+          toast(`Springs cleared on ${ids.length} joint(s)`, 'ok');
+        },
+      },
+      {
+        label: 'Assign',
+        kind: 'primary',
+        action: () => {
+          const v = fields.map((f) => (f.input.value.trim() === '' ? null : f.get()));
+          if (v.some((x) => x !== null && !(Number.isFinite(x) && x >= 0))) return fail('Fix the highlighted fields');
+          app.model.commit('assign springs', (dd) => {
+            for (const j of dd.joints) {
+              if (!ids.includes(j.id)) continue;
+              const k = v.map((x, i) => (x === null ? (j.k?.[i] ?? 0) : x)) as Springs;
+              if (k.some((x) => x > 0)) j.k = k;
+              else delete j.k;
+            }
+          });
+          toast(`Springs assigned to ${ids.length} joint(s)`, 'ok');
+        },
+      },
+    ],
+  });
+}
+
 export function assignAreaDistribution(app: App): void {
   const ids = need(app, 'areas');
   if (!ids) return;
@@ -669,6 +727,52 @@ export function jointLoadDialog(app: App): void {
             }
           });
           toast(md === 'delete' ? 'Joint loads deleted' : `Load applied to ${ids.length} joint(s)`, 'ok');
+        },
+      },
+    ],
+  });
+}
+
+export function jointDisplacementDialog(app: App): void {
+  const ids = need(app, 'joints');
+  if (!ids) return;
+  const names = ['Translation UX', 'Translation UY', 'Translation UZ', 'Rotation RX', 'Rotation RY', 'Rotation RZ'];
+  const fields = names.map((n, i) => (i < 3 ? numField(n, 0, { q: 'L' }) : numField(n, 0, { unit: 'rad' })));
+  const lc = caseField(app);
+  const mode = selectField<Mode>(
+    'Option',
+    [['replace', 'Replace displacements of this case'], ['delete', 'Delete displacements of this case']],
+    'replace',
+  );
+  openDialog({
+    title: `Joint displacement on ${ids.length} joint(s)`,
+    body: h(
+      'div',
+      { class: 'form' },
+      h('p', { class: 'muted small' }, 'Prescribed displacement (e.g. support settlement) in global axes. It acts only on restrained DOFs; values on free DOFs are ignored with a warning. Use a negative UZ for settlement.'),
+      lc.row,
+      h('div', { class: 'grid2' }, ...fields.map((f) => f.row)),
+      mode.row,
+    ),
+    buttons: [
+      { label: 'Cancel' },
+      {
+        label: 'Apply',
+        kind: 'primary',
+        action: () => {
+          const v = fields.map((f) => f.get());
+          const md = mode.get();
+          const cs = (app.lastLoadCase = lc.get());
+          if (md !== 'delete' && v.some((x) => !Number.isFinite(x))) return fail('Fix the highlighted fields');
+          app.model.commit('joint displacements', (d) => {
+            d.jointDisplacements = d.jointDisplacements.filter((l) => l.case !== cs || !ids.includes(l.joint));
+            if (md === 'delete' || v.every((x) => x === 0)) return;
+            for (const id of ids) d.jointDisplacements.push({ case: cs, joint: id, d: [...v] as [number, number, number, number, number, number] });
+          });
+          if (md === 'delete') return void toast('Joint displacements deleted', 'ok');
+          const free = app.model.data.joints.filter((j) => ids.includes(j.id) && v.some((x, i) => x !== 0 && !j.r[i]));
+          if (free.length) toast(`${free.length} joint(s) have displacement on unrestrained DOFs — those values are ignored`, 'warn');
+          else toast(`Displacement applied to ${ids.length} joint(s)`, 'ok');
         },
       },
     ],
@@ -792,6 +896,7 @@ export async function clearSelectedLoads(app: App): Promise<void> {
   if (!(await confirmDialog('Clear loads', `Delete all loads (all load cases) on the ${n} selected object(s)?`, 'Delete loads', true))) return;
   app.model.commit('clear loads', (d) => {
     d.jointLoads = d.jointLoads.filter((l) => !s.joints.includes(l.joint));
+    d.jointDisplacements = d.jointDisplacements.filter((l) => !s.joints.includes(l.joint));
     d.framePointLoads = d.framePointLoads.filter((l) => !s.frames.includes(l.frame));
     d.frameUniformLoads = d.frameUniformLoads.filter((l) => !s.frames.includes(l.frame));
     d.areaLoads = d.areaLoads.filter((l) => !s.areas.includes(l.area));
@@ -1027,6 +1132,7 @@ export function helpDialog(): void {
 // ======================================================================= LOAD CASES / COMBINATIONS
 const caseLoadCount = (d: App['model']['data'], name: string) =>
   d.jointLoads.filter((l) => l.case === name).length +
+  d.jointDisplacements.filter((l) => l.case === name).length +
   d.framePointLoads.filter((l) => l.case === name).length +
   d.frameUniformLoads.filter((l) => l.case === name).length +
   d.areaLoads.filter((l) => l.case === name).length;
@@ -1059,6 +1165,7 @@ export function loadCasesDialog(app: App): void {
       const keep = (l: { case: string }) => l.case !== lc.name;
       d.loadCases = d.loadCases.filter((x) => x.name !== lc.name);
       d.jointLoads = d.jointLoads.filter(keep);
+      d.jointDisplacements = d.jointDisplacements.filter(keep);
       d.framePointLoads = d.framePointLoads.filter(keep);
       d.frameUniformLoads = d.frameUniformLoads.filter(keep);
       d.areaLoads = d.areaLoads.filter(keep);
@@ -1088,7 +1195,7 @@ export function loadCasesDialog(app: App): void {
               rec.type = type.get();
               if (n === lc.name) return;
               rec.name = n;
-              for (const arr of [d.jointLoads, d.framePointLoads, d.frameUniformLoads, d.areaLoads]) for (const l of arr) if (l.case === lc.name) l.case = n;
+              for (const arr of [d.jointLoads, d.jointDisplacements, d.framePointLoads, d.frameUniformLoads, d.areaLoads]) for (const l of arr) if (l.case === lc.name) l.case = n;
               for (const c of d.loadCombos) for (const f of c.factors) if (f.case === lc.name) f.case = n;
             });
             if (lc && app.lastLoadCase === lc.name) app.lastLoadCase = n;

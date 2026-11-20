@@ -297,6 +297,9 @@ body.busy * {
   color: #fb7185;
   font-weight: 600;
 }
+.lbl.load.disp {
+  color: #c084fc;
+}
 .lbl.result {
   color: var(--text);
   background: color-mix(in srgb, var(--bg) 75%, transparent);
@@ -331,6 +334,9 @@ body.busy * {
 }
 [data-theme='light'] .lbl.load {
   color: #be123c;
+}
+[data-theme='light'] .lbl.load.disp {
+  color: #7e22ce;
 }
 [data-theme='light'] .lbl.react {
   color: #7e22ce;

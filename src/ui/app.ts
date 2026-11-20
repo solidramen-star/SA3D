@@ -506,6 +506,8 @@ export class App {
     frameUniform: () => this.need('frames') && D.frameUniformLoadDialog(this),
     areaLoad: () => this.need('areas') && D.areaLoadDialog(this),
     assignSupport: () => this.need('joints') && D.assignSupports(this),
+    assignSpring: () => this.need('joints') && D.assignSprings(this),
+    jointDisp: () => this.need('joints') && D.jointDisplacementDialog(this),
     assignMaterial: () => this.need('frames') && D.assignFrameProps(this, 'material'),
     assignSection: () => this.need('frames') && D.assignFrameProps(this, 'section'),
     assignBeta: () => this.need('frames') && D.assignFrameProps(this, 'beta'),
@@ -805,6 +807,7 @@ export class App {
     return [
       { heading: 'Joints' },
       { label: 'Support / restraints…', action: () => this.cmd('assignSupport') },
+      { label: 'Joint springs…', action: () => this.cmd('assignSpring') },
       { heading: 'Frames' },
       { label: 'Material…', action: () => this.cmd('assignMaterial') },
       { label: 'Section…', action: () => this.cmd('assignSection') },
@@ -818,6 +821,7 @@ export class App {
   private loadsMenu(): MenuItem[] {
     return [
       { label: 'Joint point load…', action: () => this.cmd('jointLoad') },
+      { label: 'Joint displacement…', action: () => this.cmd('jointDisp') },
       { label: 'Frame point load…', action: () => this.cmd('framePoint') },
       { label: 'Frame uniform load…', action: () => this.cmd('frameUniform') },
       { label: 'Area uniform load…', action: () => this.cmd('areaLoad') },
@@ -936,7 +940,7 @@ export class App {
     if (hit && !this.selection.has(hit)) this.select([hit], this.tools.multi ? 'add' : 'replace');
     const s = this.selected();
     const items: MenuItem[] = [];
-    if (s.joints.length) items.push({ heading: `Joints (${s.joints.length})` }, { label: 'Support…', action: () => this.cmd('assignSupport') }, { label: 'Joint load…', action: () => this.cmd('jointLoad') });
+    if (s.joints.length) items.push({ heading: `Joints (${s.joints.length})` }, { label: 'Support…', action: () => this.cmd('assignSupport') }, { label: 'Springs…', action: () => this.cmd('assignSpring') }, { label: 'Joint load…', action: () => this.cmd('jointLoad') }, { label: 'Displacement…', action: () => this.cmd('jointDisp') });
     if (s.frames.length === 1 && this.results) {
       const fid = s.frames[0];
       items.push({ heading: `Frame ${fid} results` }, { label: 'Frame diagrams…', action: () => D.frameDiagramsDialog(this, fid) });

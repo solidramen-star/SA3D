@@ -1,5 +1,5 @@
-export const APP_VERSION = '1.1.7';
-export const APP_UPDATE_DATE = '2026-11-19';
+export const APP_VERSION = '1.1.8';
+export const APP_UPDATE_DATE = '2026-11-20';
 
 export interface ChangelogEntry {
   version: string;
@@ -9,6 +9,18 @@ export interface ChangelogEntry {
 
 /** Newest first. Shown in Help ▸ About. */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.1.8',
+    date: '2026-11-20',
+    changes: [
+      'Elastic joint springs: Assign ▸ Joint springs… sets Kx, Ky, Kz (force/length) and Krx, Kry, Krz (moment/rad) per joint',
+      'Prescribed joint displacements (support settlement) per load case: Loads ▸ Joint displacement…',
+      'Reactions include spring forces, so reactions still balance the loads',
+      'Analysis warnings for a spring on a restrained DOF and for a displacement on a free DOF',
+      'New .sav tables SPRINGS and JOINT DISPLACEMENTS (older files still open)',
+      'Spring (coil / spiral) and prescribed-displacement glyphs in the 3D view; springs and displacements shown in the inspector',
+    ],
+  },
   {
     version: '1.1.7',
     date: '2026-11-19',

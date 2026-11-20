@@ -176,6 +176,7 @@ export class Model {
       d.frames = d.frames.filter((f) => !fs.has(f.id));
       d.areas = d.areas.filter((a) => !as.has(a.id));
       d.jointLoads = d.jointLoads.filter((l) => !js.has(l.joint));
+      d.jointDisplacements = d.jointDisplacements.filter((l) => !js.has(l.joint));
       d.framePointLoads = d.framePointLoads.filter((l) => !fs.has(l.frame));
       d.frameUniformLoads = d.frameUniformLoads.filter((l) => !fs.has(l.frame));
       d.areaLoads = d.areaLoads.filter((l) => !as.has(l.area));
@@ -224,6 +225,7 @@ export class Model {
           const nid = this.addJoint(j.x + dx * k, j.y + dy * k, j.z + dz * k);
           const nj = this.joint(nid)!;
           nj.r = [...j.r] as Restraint;
+          if (j.k) nj.k = [...j.k] as typeof j.k;
           map.set(jid, nid);
           created.joints.push(nid);
         }
@@ -252,6 +254,8 @@ export class Model {
         for (const jid of joints) {
           for (const jl of d.jointLoads.filter((l) => l.joint === jid))
             d.jointLoads.push({ ...jl, joint: map.get(jid)!, f: [...jl.f] as typeof jl.f });
+          for (const jd of d.jointDisplacements.filter((l) => l.joint === jid))
+            d.jointDisplacements.push({ ...jd, joint: map.get(jid)!, d: [...jd.d] as typeof jd.d });
         }
       }
     });

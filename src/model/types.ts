@@ -39,6 +39,16 @@ export interface Joint {
   y: number;
   z: number;
   r: Restraint;
+  /** Elastic spring stiffness Kx Ky Kz (kN/m) and Krx Kry Krz (kN·m/rad) in global axes. Absent = no springs. */
+  k?: Springs;
+}
+
+export type Springs = [number, number, number, number, number, number];
+export const SPRING_NAMES = ['Kx', 'Ky', 'Kz', 'Krx', 'Kry', 'Krz'];
+
+/** True when the joint has at least one non-zero spring. */
+export function hasSprings(j: Joint): boolean {
+  return !!j.k && j.k.some((v) => v > 0);
 }
 
 export type ReleaseDof = 'P' | 'V2' | 'V3' | 'T' | 'M2' | 'M3';
@@ -165,6 +175,13 @@ export interface JointLoad {
   f: [number, number, number, number, number, number]; // Fx Fy Fz Mx My Mz
 }
 
+/** Prescribed (imposed) displacement of restrained DOFs, e.g. support settlement. UX UY UZ in m, RX RY RZ in rad. */
+export interface JointDisplacement {
+  case: string;
+  joint: number;
+  d: [number, number, number, number, number, number];
+}
+
 export interface FramePointLoad {
   case: string;
   frame: number;
@@ -197,6 +214,7 @@ export interface ModelData {
   loadCases: LoadCase[];
   loadCombos: LoadCombo[];
   jointLoads: JointLoad[];
+  jointDisplacements: JointDisplacement[];
   framePointLoads: FramePointLoad[];
   frameUniformLoads: FrameUniformLoad[];
   areaLoads: AreaLoad[];
@@ -233,6 +251,7 @@ export function defaultModel(): ModelData {
     loadCases: defaultLoadCases(),
     loadCombos: defaultLoadCombos(),
     jointLoads: [],
+    jointDisplacements: [],
     framePointLoads: [],
     frameUniformLoads: [],
     areaLoads: [],
@@ -268,9 +287,10 @@ export function defaultLoadCombos(): LoadCombo[] {
 export function migrateModel(d: ModelData): ModelData {
   if (!Array.isArray(d.loadCases) || d.loadCases.length === 0) d.loadCases = defaultLoadCases();
   if (!Array.isArray(d.loadCombos)) d.loadCombos = defaultLoadCombos();
+  if (!Array.isArray(d.jointDisplacements)) d.jointDisplacements = [];
   const names = new Set(d.loadCases.map((c) => c.name));
   const first = d.loadCases[0].name;
-  for (const list of [d.jointLoads, d.framePointLoads, d.frameUniformLoads, d.areaLoads] as { case?: string }[][])
+  for (const list of [d.jointLoads, d.jointDisplacements, d.framePointLoads, d.frameUniformLoads, d.areaLoads] as { case?: string }[][])
     for (const l of list ?? []) if (!l.case || !names.has(l.case)) l.case = first;
   for (const c of d.loadCombos) c.factors = (c.factors ?? []).filter((f) => names.has(f.case) && Number.isFinite(f.factor));
   return d;

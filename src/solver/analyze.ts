@@ -1,5 +1,5 @@
 import { sectionProps } from '../model/sections';
-import { DOF_NAMES, migrateModel, releaseMechanismError, type Joint, type LoadCombo, type MemberReleases, type ModelData } from '../model/types';
+import { DOF_NAMES, hasSprings, migrateModel, releaseMechanismError, type Joint, type LoadCombo, type MemberReleases, type ModelData } from '../model/types';
 import {
   condenseFER,
   condenseStiffness,
@@ -43,7 +43,7 @@ export interface FrameResult {
 export interface Results {
   /** jointId → [UX,UY,UZ,RX,RY,RZ] */
   disp: Record<number, number[]>;
-  /** jointId → [FX,FY,FZ,MX,MY,MZ] (only restrained joints) */
+  /** jointId → [FX,FY,FZ,MX,MY,MZ] (restrained and spring-supported joints; spring force = −k·u) */
   reactions: Record<number, number[]>;
   frames: FrameResult[];
   warnings: string[];
@@ -324,6 +324,13 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
   for (const j of data.joints) {
     if (!used.has(j.id) && data.jointLoads.some((l) => l.joint === j.id && l.f.some((v) => v !== 0)))
       globalWarnings.push(`Joint ${j.id} is not connected to any frame; its load is ignored.`);
+    if (!used.has(j.id) && hasSprings(j)) globalWarnings.push(`Joint ${j.id} is not connected to any frame; its springs are ignored.`);
+    if (!used.has(j.id) && (data.jointDisplacements ?? []).some((l) => l.joint === j.id && l.d.some((v) => v !== 0)))
+      globalWarnings.push(`Joint ${j.id} is not connected to any frame; its prescribed displacement is ignored.`);
+    if (used.has(j.id) && j.k) {
+      const both = DOF_NAMES.filter((_, k) => j.r[k] && j.k![k] > 0);
+      if (both.length) globalWarnings.push(`Joint ${j.id}: ${both.join(', ')} is restrained and also has a spring; the restraint is used and the spring is ignored.`);
+    }
   }
   const usedJoints = data.joints.filter((j) => used.has(j.id));
   const idxOf = new Map<number, number>(usedJoints.map((j, k) => [j.id, k]));
@@ -441,6 +448,17 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
         }
       }
     });
+    // Elastic joint springs on free DOFs (restrained DOFs keep the restraint)
+    usedJoints.forEach((j, ji) => {
+      if (!j.k) return;
+      for (let k = 0; k < 6; k++) {
+        const kv = j.k[k];
+        const e = eq[ji * 6 + k];
+        if (!(kv > 0) || e < 0) continue;
+        K!.add(e, e, kv);
+        if (k >= 3) rotBlock[ji * 9 + (k - 3) * 4] += kv;
+      }
+    });
     // Joints where every connected member end is rotationally released (e.g. truss nodes) have a
     // zero-stiffness rotation; add a tiny spring along that direction instead of failing as a mechanism.
     if (maxRotDiag > 0) {
@@ -541,7 +559,42 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       for (let k = 0; k < 3; k++) sumLoad[k] -= fg[k] + fg[6 + k];
     });
 
+    // Prescribed displacements of restrained DOFs: D is fixed there and K_fr·d_r moves to the load side
     const D = new Float64Array(nJ * 6);
+    let hasPrescribed = false;
+    for (const l of data.jointDisplacements ?? []) {
+      if ((l.case ?? data.loadCases[0].name) !== lc.name) continue;
+      const ji = idxOf.get(l.joint);
+      if (ji === undefined) continue;
+      for (let k = 0; k < 6; k++) {
+        if (!l.d[k]) continue;
+        if (eq[ji * 6 + k] >= 0) {
+          warnings.push(`Joint ${l.joint}: prescribed ${DOF_NAMES[k]} is ignored because that DOF is not restrained.`);
+          continue;
+        }
+        D[ji * 6 + k] += l.d[k];
+        hasPrescribed = true;
+      }
+    }
+    if (hasPrescribed) {
+      for (const e of elems) {
+        const dg = new Float64Array(12);
+        let any = false;
+        for (let k = 0; k < 6; k++) {
+          dg[k] = D[e.ji * 6 + k];
+          dg[6 + k] = D[e.jj * 6 + k];
+          if (dg[k] || dg[6 + k]) any = true;
+        }
+        if (!any) continue;
+        const kg = globalStiffness(e.klCondensed, e.R);
+        for (let r = 0; r < 12; r++) {
+          let s = 0;
+          for (let c = 0; c < 12; c++) s += kg[r * 12 + c] * dg[c];
+          Fj[(r < 6 ? e.ji : e.jj) * 6 + (r % 6)] -= s;
+        }
+      }
+    }
+
     if (K) {
       const b = new Float64Array(nEq);
       for (let i = 0; i < nJ * 6; i++) if (eq[i] >= 0) b[eq[i]] = Fj[i];
@@ -654,9 +707,12 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
     const sumReaction: Vec3 = [0, 0, 0];
     usedJoints.forEach((j, ji) => {
       disp[j.id] = Array.from(D.subarray(ji * 6, ji * 6 + 6));
-      if (j.r.some(Boolean)) {
+      if (j.r.some(Boolean) || hasSprings(j)) {
         const r = [0, 0, 0, 0, 0, 0];
-        for (let k = 0; k < 6; k++) if (j.r[k]) r[k] = sumEnd[ji * 6 + k] - Fapplied[ji * 6 + k];
+        for (let k = 0; k < 6; k++) {
+          if (j.r[k]) r[k] = sumEnd[ji * 6 + k] - Fapplied[ji * 6 + k];
+          else if (j.k && j.k[k] > 0) r[k] = -j.k[k] * D[ji * 6 + k]; // spring force on the joint
+        }
         reactions[j.id] = r;
         for (let k = 0; k < 3; k++) sumReaction[k] += r[k];
       }

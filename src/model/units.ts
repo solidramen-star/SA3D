@@ -3,8 +3,8 @@
 
 export type UnitSystemId = 'kN-m' | 'N-mm' | 'tonf-m' | 'kgf-mm' | 'kip-ft' | 'kip-in' | 'lb-in';
 
-/** Quantity kinds: L length, F force, M moment, FL force/length, FA force/area (stress, pressure), FV force/volume, A area, L4 second moment. */
-export type Qty = 'L' | 'F' | 'M' | 'FL' | 'FA' | 'FV' | 'A' | 'L4';
+/** Quantity kinds: L length, F force, M moment, FL force/length, FA force/area (stress, pressure), FV force/volume, A area, L4 second moment, MR moment per radian (rotational spring). */
+export type Qty = 'L' | 'F' | 'M' | 'FL' | 'FA' | 'FV' | 'A' | 'L4' | 'MR';
 
 export interface UnitSystem {
   id: UnitSystemId;
@@ -36,7 +36,7 @@ export const UNIT_SYSTEMS: UnitSystem[] = [
 export const SI = UNIT_SYSTEMS[0];
 
 /** [force exponent, length exponent] */
-const DIM: Record<Qty, [number, number]> = { L: [0, 1], F: [1, 0], M: [1, 1], FL: [1, -1], FA: [1, -2], FV: [1, -3], A: [0, 2], L4: [0, 4] };
+const DIM: Record<Qty, [number, number]> = { L: [0, 1], F: [1, 0], M: [1, 1], FL: [1, -1], FA: [1, -2], FV: [1, -3], A: [0, 2], L4: [0, 4], MR: [1, 1] };
 
 const STORE_KEY = 'structapp3d.units';
 
@@ -109,6 +109,8 @@ export function uLabel(q: Qty, u: UnitSystem = current, ascii = false): string {
       return `${l}${p(2)}`;
     case 'L4':
       return `${l}${p(4)}`;
+    case 'MR':
+      return `${f}${ascii ? '-' : '·'}${l}/rad`;
   }
 }
 

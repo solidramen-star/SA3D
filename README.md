@@ -21,8 +21,10 @@ Open the printed URL in Chrome, Edge, Safari (iPad) or Chrome (Android). For a q
 1. **Define** → Materials, Frame sections, Support types, Grid & work plane.
 2. **Draw** joints (tap the grid), frames (tap joint to joint and keep tapping to chain; Done/Esc ends the chain) and areas (tap 3 or more corners, then Done).
 3. **Select** objects by tapping them (the Properties panel shows their data). Use the **Box** tool to drag a selection rectangle, or the **Multi** tool to toggle items one at a time.
-4. **Assign** a material, section, β angle, supports or area distribution to the selection.
+4. **Assign** a material, section, β angle, supports, joint springs or area distribution to the selection.
+   - **Assign → Joint springs…** adds elastic supports per joint: translational Kx, Ky, Kz (force/length) and rotational Krx, Kry, Krz (moment/rad) along the global axes. A spring on a DOF that is also restrained is ignored (the analysis warns). Springs are drawn as coils (translations) and spirals (rotations); their forces (−k·u) are reported as reactions.
 5. **Loads**: joint point loads (FX…MZ), frame point loads (at a relative distance), frame uniform loads and area loads (force/area). Every load belongs to a **load case**, chosen in the load dialog. You can also switch on self weight.
+   - **Loads → Joint displacement…** prescribes a displacement (e.g. support settlement UZ < 0) on selected joints for a load case. It acts only on restrained DOFs; values on free DOFs are ignored with a warning.
    - **Loads → Load cases…**: the defaults are `DEAD` (Dead) and `LIVE` (Live). You can add, rename (loads and combinations follow the new name) or delete your own cases. Self weight is added to the first Dead case.
    - **Loads → Load combinations…**: the default is `COMBO1 = 1.2 DEAD + 1.6 LIVE`. Enter a factor for each case (0 means not included). Combination results are the factored sum of the case results.
 6. **Analyze → Run analysis** analyses every load case and combination. Use the case/combo dropdown at the start of the results bar to choose which one is shown (a combination is shown first by default). The results bar lets you choose Deformed, P, V2, V3, T, M2, M3 or Reactions. Use the slider (or type a value) to set the deformation scale, and press **Animate** to animate the deformed shape. The force-diagram size is adjustable as well, and **Tables** opens the full result tables.
@@ -65,7 +67,7 @@ The model is also auto-saved to browser storage and offered for recovery on the 
 
 The file is a sequence of tables. Each table starts with a `TABLE,<name>` row, then a header row, then data rows, followed by a blank line. In Excel use **File → Open**, choose *All files*, select the `.sav` file and pick *Delimited → Comma* if asked.
 
-Tables: `PROGRAM`, `SETTINGS`, `MATERIALS`, `SECTIONS`, `SUPPORT TYPES`, `JOINTS`, `JOINT RESTRAINTS`, `FRAMES`, `AREAS`, `LOAD CASES`, `LOAD COMBOS`, `JOINT LOADS`, `FRAME POINT LOADS`, `FRAME UNIFORM LOADS`, `AREA LOADS` (every load table has a `LoadCase` column; older files without it put all loads into the first case). If **File → Include results in .sav** is ticked when saving, these are added: `RESULTS JOINT DISPLACEMENTS`, `RESULTS JOINT REACTIONS` and `RESULTS FRAME FORCES`, with a `Case` column for each load case and combination. Results are for reference only and are recomputed after you reopen a file.
+Tables: `PROGRAM`, `SETTINGS`, `MATERIALS`, `SECTIONS`, `SUPPORT TYPES`, `JOINTS`, `JOINT RESTRAINTS`, `SPRINGS`, `FRAMES`, `AREAS`, `LOAD CASES`, `LOAD COMBOS`, `JOINT LOADS`, `JOINT DISPLACEMENTS`, `FRAME POINT LOADS`, `FRAME UNIFORM LOADS`, `AREA LOADS` (every load and joint-displacement table has a `LoadCase` column; older files without it put all loads into the first case). If **File → Include results in .sav** is ticked when saving, these are added: `RESULTS JOINT DISPLACEMENTS`, `RESULTS JOINT REACTIONS` and `RESULTS FRAME FORCES`, with a `Case` column for each load case and combination. Results are for reference only and are recomputed after you reopen a file.
 
 You can edit a file in Excel and reopen it, provided you keep the table names, headers and CSV format.
 
@@ -73,7 +75,7 @@ A .sav file is written in the units chosen when you save. The `Units` cell in th
 
 ## Conventions
 
-- **Units:** use the dropdown at the bottom right of the status bar to choose kN, m · N, mm · ton, m · kg, mm (metric; ton and kg are tonne-force and kilogram-force) or kip, ft · kip, in · lb, in (imperial). All input fields, tables, labels and results switch to the chosen units straight away. Your choice is remembered on the device. Internally the model is stored and solved in kN and m. Rotations are always in rad and β in degrees. **Global Z is up**. GRAV loads act in −Z, and a positive value means downward.
+- **Units:** use the dropdown at the bottom right of the status bar to choose kN, m · N, mm · ton, m · kg, mm (metric; ton and kg are tonne-force and kilogram-force) or kip, ft · kip, in · lb, in (imperial). All input fields, tables, labels and results switch to the chosen units straight away. Your choice is remembered on the device. Internally the model is stored and solved in kN and m. Rotations are always in rad and β in degrees. Rotational springs use moment/rad (for example kN·m/rad). **Global Z is up**. GRAV loads act in −Z, and a positive value means downward.
 - **Frame local axes** follow SAP2000:
   - Axis 1 runs from joint I to joint J.
   - For non-vertical members the 1-2 plane is vertical, with axis 2 pointing up.
@@ -99,7 +101,7 @@ A .sav file is written in the units chosen when you save. The `Units` cell in th
 ## Limitations
 
 - Linear static analysis of 3D space frames: 12-DOF Euler–Bernoulli elements, with multiple load cases and linear combinations. Channels are analysed about their centroid; shear-centre eccentricity and warping torsion are ignored.
-- No member end releases (pins), rigid end offsets, springs or P-Δ effects.
+- No rigid end offsets or P-Δ effects. Joint springs are linear and act along the global axes only.
 - Areas transfer load only and are not shell elements.
 
 ## Project layout
