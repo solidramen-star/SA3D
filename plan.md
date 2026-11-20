@@ -8,7 +8,7 @@ This document outlines the product and engineering roadmap for **StructApp 3D** 
 
 1. **Engineering Completeness:** Support fundamental structural systems (trusses, braced frames, simply supported beam-girder framing) via member end releases and elastic spring supports.
 2. **Workflow Acceleration:** Provide built-in standard steel/concrete section databases (AISC, Eurocode, British Standards) and 3D DXF CAD wireframe import.
-3. **Touch & Tablet Productivity:** Exploit pen/stylus precision (Apple Pencil / S-Pen vs. finger discrimination), advanced geometric snapping (midpoint, perpendicular, polar angle tracking), and radial context menus.
+3. **Touch & Tablet Productivity:** Connect new members to existing frames without extra steps (midpoint and frame-crossing snaps that split the frame). Further drawing aids (polar tracking, perpendicular snap, pen/stylus mode, radial menu) are kept in the **Backlog**.
 4. **Professional Deliverables:** Offer automated PDF calculation reports (equilibrium verification, peak force envelopes, 3D views) and steel capacity/utilization checks (AISC 360 / Eurocode 3).
 5. **AI Assistance (far future):** An optional AI agent that builds and edits models from plain-language requests, runs the analysis and explains the results, using only the app's own tools and solver.
 
@@ -20,14 +20,18 @@ This document outlines the product and engineering roadmap for **StructApp 3D** 
 Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non-Linear & Reports ──► Phase 4: Code Checks ──► Phase 5: AI Agent
 • Member End Releases       • Standard Section Library    • P-Delta (P-Δ) Solver           • AISC / EC3 Capacity    • Chat Assistant Panel
 • Spring Supports           • DXF Centerline Import       • PDF Calculation Reports        • Shell / Plate Elements • Model Tools (build/edit)
-• Snapping Engine v2        • Apple Pencil / Stylus Mode  • Dynamic Modal Frequencies      • Auto Load Combinations • Explain & Check Results
+                            • Snap Essentials             • Dynamic Modal Frequencies      • Auto Load Combinations • Explain & Check Results
 ```
+
+**Backlog (unscheduled):** advanced snapping (polar tracking, perpendicular snap, haptics) · pen/stylus mode · radial quick menu. See the **Backlog** section after Phase 5.
 
 ---
 
 ## 📌 Phase 1: Essential Engineering & Modeling Precision (Near-Term)
 
-*Target: Enable realistic frame/truss connections and improve drawing accuracy.*
+*Target: Enable realistic frame/truss connections and support conditions.*
+
+> **Status:** ✅ Phase 1 is complete with items 1.1 and 1.2 (v1.1.8). The former item 1.3 (Advanced Snapping Engine) was split: midpoint and frame-crossing snaps moved to **2.3 Snap Essentials**; the rest moved to the **Backlog** as **B.1**.
 
 ### 1.1 Member End Releases (Moment Pins & Hinges)
 - **Problem:** Currently, all frame joints are rigidly connected for all 6 DOFs. Trusses, cross-braces, and secondary floor beams framing into continuous girders cannot be realistically modeled without artificial joint splitting.
@@ -79,16 +83,6 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
-### 1.3 Advanced Snapping Engine (Smart Guides & Polar Tracking)
-- **Problem:** Drawing is currently constrained to grid intersections or existing joints.
-- **Specification:**
-  - **Midpoint Snap:** Snaps to $50\%$ station along existing frame elements (visual triangle indicator).
-  - **Perpendicular Snap:** Snaps to nearest orthogonal projection onto existing member lines.
-  - **Polar Angle Tracking:** Snaps to configurable angular increments ($0^\circ, 30^\circ, 45^\circ, 90^\circ$) from the active draw origin with dashed guide rays.
-  - **Haptic Feedback:** Vibrates mobile devices briefly (`navigator.vibrate(10)`) when a snap point locks.
-
----
-
 ## 📌 Phase 2: Libraries, Interoperability & Touch Refinement (Mid-Term)
 
 *Target: Eliminate manual dimension entry, enable CAD imports, and optimize tablet input.*
@@ -114,15 +108,17 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
-### 2.3 Tablet Ergonomics: Stylus / Apple Pencil Discrimination & Radial Menu
-- **Problem:** Accidental drawing occurs while trying to pan/orbit on tablets.
+### 2.3 Snap Essentials: Midpoint & Frame-Crossing Snaps with Auto-Split
+- **Problem:** Drawing snaps only to grid points and existing joints. To connect a brace or secondary beam to the middle of a frame, or where two frames cross, the user must first run **Divide frames…**. If a member only *looks* connected but no joint exists there, the analysis is silently wrong.
 - **Specification:**
-  - **Pointer Discrimination (`src/input/gestures.ts`):**
-    - `pointerType === 'pen'`: Dedicated exclusively to drawing, selecting, and moving joints.
-    - `pointerType === 'touch'`: Dedicated to camera manipulation (orbit, pan, pinch-to-zoom), ignoring draw triggers unless finger drawing is explicitly toggled.
-  - **Radial / Pie Quick-Action Menu:**
-    - Triggered via stylus double-tap or long-press.
-    - Radial options: *Frame Tool*, *Joint Tool*, *Select*, *Delete*, *Run Solver*, *Toggle Work Plane*.
+  - **Midpoint snap:** while the Joint, Frame or Area tool is active, snap to the 50% point of an existing frame. Show a small triangle marker.
+  - **Crossing snap:** snap to the point where two existing frames cross (distance between the lines ≤ `COORD_TOL`). Show an X marker.
+  - **Auto-split:** placing a joint on a midpoint or crossing snap splits the frame(s) at that point, so the new member is really connected. Add `Model.splitFrameAt(frameId, t)` next to `divideFrame` in `src/model/model.ts`. The pieces keep material, section and `beta`; the original end releases stay on the **outer** ends only (new inner ends are rigid); uniform loads are copied to every piece; point loads are moved to the piece that contains them with a re-scaled `rd`.
+  - The new joint, the split and the new member are **one** `Model.commit(...)` step, so one Undo reverts everything.
+  - **Snap priority:** existing joint → midpoint / crossing → grid. Use the same pick radius as the joint snap (larger for touch).
+  - **Feedback:** reuse `navigator.vibrate?.(15)` from `gestures.ts` when the snap locks. This only works on Android; iPad Safari has no Vibration API, so the marker is the main feedback.
+- **Files:** `src/input/tools.ts` (snap search), `src/model/model.ts` (split), `src/view/viewer.ts` (markers), new `tests/snap.test.ts`.
+- **`.sav` format:** no change.
 
 ---
 
@@ -230,6 +226,32 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
+## 🗃️ Backlog (unscheduled)
+
+*Ideas that are useful but not needed for correct models or results. They have no phase and no fixed order. Pull an item into the current phase only when users ask for it.*
+
+> **Rules for backlog items:**
+> - Backlog items are numbered **B.1, B.2, …**. These numbers are **not** phases and **not** app versions.
+> - A backlog item has no version series of its own. When it is implemented, it ships in the **current** version series (for example, at `v1.2.3` it ships as `v1.2.4`). See the versioning rule in `docs/ROADMAP.md`.
+> - Before starting an item, read its review notes in `docs/ROADMAP.md`.
+
+### B.1 Advanced Drawing Snaps (from former item 1.3)
+- **Why deferred:** grid and joint snaps, work-plane rotate/offset, **Divide frames…** and 2.3 Snap Essentials already cover regular structures. These snaps only save taps; they do not change any result.
+- **Specification:**
+  - **Perpendicular snap:** snap to the nearest orthogonal projection onto an existing member line.
+  - **Polar angle tracking:** snap to configurable angle steps ($0^\circ, 30^\circ, 45^\circ, 90^\circ$) from the active draw origin, with dashed guide rays, inside the current work plane.
+  - **Area-edge snap:** snap to points on area edges.
+  - **Haptic feedback:** short vibration when a snap locks (Android only).
+  - **Alternative worth considering first:** typed input of length + angle (or relative coordinates) from the last joint, which is more precise than dragging along a guide ray on a touch screen.
+
+### B.2 Pen / Stylus Mode & Radial Quick Menu (from former item 2.3)
+- **Why deferred:** only helps users with a stylus. Today a pen works exactly like a finger, a stray tap is fixed with one Undo, and every radial-menu option already exists in the sidebar, toolbar or long-press menu.
+- **Specification:**
+  - **Pen mode (`src/input/gestures.ts`):** `pointerType === 'pen'` draws, selects and moves joints; `pointerType === 'touch'` only moves the camera (orbit, pan, pinch-zoom). Pen mode is **off by default**, switches on automatically the first time a pen is detected, and has a manual toggle.
+  - **Radial / pie quick menu:** options *Frame Tool*, *Joint Tool*, *Select*, *Delete*, *Run Solver*, *Toggle Work Plane*. It must replace or extend the existing long-press menu, not add a second competing gesture.
+
+---
+
 ## 🛠️ Technical Migration & Compatibility Matrix
 
 | Feature | Primary Modules Affected | `.sav` Format Changes | Backward Compatible? |
@@ -238,6 +260,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 | **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS`, `TABLE,JOINT DISPLACEMENTS` | ✅ Yes (ignored if omitted) |
 | **Section Catalog** | `model/sections`, `ui/dialogs` | None (serializes standard dimensions) | ✅ Yes |
 | **DXF Import/Export** | `io/dxf.ts`, `ui/app` | None (populates `ModelData`) | ✅ Yes |
+| **Snap Essentials (2.3)** | `input/tools`, `model/model` (`splitFrameAt`), `view/viewer` | None | ✅ Yes |
 | **P-Delta Analysis** | `solver/analyze`, `solver/frame3d` | Adds setting `PDelta,Yes/No` | ✅ Yes |
 | **Modal Analysis** | `solver/modal.ts`, `view/viewer` | None (computed dynamically) | ✅ Yes |
 | **AI Agent (Phase 5)** | new `agent/tools`, `agent/provider`, `ui/agentPanel`; uses `model/model` commit/undo | Optional `TABLE,AI LOG`; API key is **never** saved | ✅ Yes (table ignored if omitted) |

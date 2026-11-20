@@ -8,7 +8,7 @@ This document outlines the product and engineering roadmap for **StructApp 3D** 
 
 1. **Engineering Completeness:** Support fundamental structural systems (trusses, braced frames, simply supported beam-girder framing) via member end releases and elastic spring supports.
 2. **Workflow Acceleration:** Provide built-in standard steel/concrete section databases (AISC, Eurocode, British Standards) and 3D DXF CAD wireframe import.
-3. **Touch & Tablet Productivity:** Exploit pen/stylus precision (Apple Pencil / S-Pen vs. finger discrimination), advanced geometric snapping (midpoint, perpendicular, polar angle tracking), and radial context menus.
+3. **Touch & Tablet Productivity:** Connect new members to existing frames without extra steps (midpoint and frame-crossing snaps that split the frame). Further drawing aids (polar tracking, perpendicular snap, pen/stylus mode, radial menu) are kept in the **Backlog**.
 4. **Professional Deliverables:** Offer automated PDF calculation reports (equilibrium verification, peak force envelopes, 3D views) and steel capacity/utilization checks (AISC 360 / Eurocode 3).
 5. **AI Assistance (far future):** An optional AI agent that builds and edits models from plain-language requests, runs the analysis and explains the results, using only the app's own tools and solver.
 
@@ -20,14 +20,18 @@ This document outlines the product and engineering roadmap for **StructApp 3D** 
 Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non-Linear & Reports ──► Phase 4: Code Checks ──► Phase 5: AI Agent
 • Member End Releases       • Standard Section Library    • P-Delta (P-Δ) Solver           • AISC / EC3 Capacity    • Chat Assistant Panel
 • Spring Supports           • DXF Centerline Import       • PDF Calculation Reports        • Shell / Plate Elements • Model Tools (build/edit)
-• Snapping Engine v2        • Apple Pencil / Stylus Mode  • Dynamic Modal Frequencies      • Auto Load Combinations • Explain & Check Results
+                            • Snap Essentials             • Dynamic Modal Frequencies      • Auto Load Combinations • Explain & Check Results
 ```
+
+**Backlog (unscheduled):** advanced snapping (polar tracking, perpendicular snap, haptics) · pen/stylus mode · radial quick menu. See the **Backlog** section after Phase 5.
 
 ---
 
 ## 📌 Phase 1: Essential Engineering & Modeling Precision (Near-Term)
 
-*Target: Enable realistic frame/truss connections and improve drawing accuracy.*
+*Target: Enable realistic frame/truss connections and support conditions.*
+
+> **Status:** ✅ Phase 1 is complete with items 1.1 and 1.2 (v1.1.8). The former item 1.3 (Advanced Snapping Engine) was split: midpoint and frame-crossing snaps moved to **2.3 Snap Essentials**; the rest moved to the **Backlog** as **B.1**.
 
 ### 1.1 Member End Releases (Moment Pins & Hinges)
 - **Problem:** Currently, all frame joints are rigidly connected for all 6 DOFs. Trusses, cross-braces, and secondary floor beams framing into continuous girders cannot be realistically modeled without artificial joint splitting.
@@ -79,16 +83,6 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
-### 1.3 Advanced Snapping Engine (Smart Guides & Polar Tracking)
-- **Problem:** Drawing is currently constrained to grid intersections or existing joints.
-- **Specification:**
-  - **Midpoint Snap:** Snaps to $50\%$ station along existing frame elements (visual triangle indicator).
-  - **Perpendicular Snap:** Snaps to nearest orthogonal projection onto existing member lines.
-  - **Polar Angle Tracking:** Snaps to configurable angular increments ($0^\circ, 30^\circ, 45^\circ, 90^\circ$) from the active draw origin with dashed guide rays.
-  - **Haptic Feedback:** Vibrates mobile devices briefly (`navigator.vibrate(10)`) when a snap point locks.
-
----
-
 ## 📌 Phase 2: Libraries, Interoperability & Touch Refinement (Mid-Term)
 
 *Target: Eliminate manual dimension entry, enable CAD imports, and optimize tablet input.*
@@ -114,15 +108,17 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
-### 2.3 Tablet Ergonomics: Stylus / Apple Pencil Discrimination & Radial Menu
-- **Problem:** Accidental drawing occurs while trying to pan/orbit on tablets.
+### 2.3 Snap Essentials: Midpoint & Frame-Crossing Snaps with Auto-Split
+- **Problem:** Drawing snaps only to grid points and existing joints. To connect a brace or secondary beam to the middle of a frame, or where two frames cross, the user must first run **Divide frames…**. If a member only *looks* connected but no joint exists there, the analysis is silently wrong.
 - **Specification:**
-  - **Pointer Discrimination (`src/input/gestures.ts`):**
-    - `pointerType === 'pen'`: Dedicated exclusively to drawing, selecting, and moving joints.
-    - `pointerType === 'touch'`: Dedicated to camera manipulation (orbit, pan, pinch-to-zoom), ignoring draw triggers unless finger drawing is explicitly toggled.
-  - **Radial / Pie Quick-Action Menu:**
-    - Triggered via stylus double-tap or long-press.
-    - Radial options: *Frame Tool*, *Joint Tool*, *Select*, *Delete*, *Run Solver*, *Toggle Work Plane*.
+  - **Midpoint snap:** while the Joint, Frame or Area tool is active, snap to the 50% point of an existing frame. Show a small triangle marker.
+  - **Crossing snap:** snap to the point where two existing frames cross (distance between the lines ≤ `COORD_TOL`). Show an X marker.
+  - **Auto-split:** placing a joint on a midpoint or crossing snap splits the frame(s) at that point, so the new member is really connected. Add `Model.splitFrameAt(frameId, t)` next to `divideFrame` in `src/model/model.ts`. The pieces keep material, section and `beta`; the original end releases stay on the **outer** ends only (new inner ends are rigid); uniform loads are copied to every piece; point loads are moved to the piece that contains them with a re-scaled `rd`.
+  - The new joint, the split and the new member are **one** `Model.commit(...)` step, so one Undo reverts everything.
+  - **Snap priority:** existing joint → midpoint / crossing → grid. Use the same pick radius as the joint snap (larger for touch).
+  - **Feedback:** reuse `navigator.vibrate?.(15)` from `gestures.ts` when the snap locks. This only works on Android; iPad Safari has no Vibration API, so the marker is the main feedback.
+- **Files:** `src/input/tools.ts` (snap search), `src/model/model.ts` (split), `src/view/viewer.ts` (markers), new `tests/snap.test.ts`.
+- **`.sav` format:** no change.
 
 ---
 
@@ -230,6 +226,32 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
+## 🗃️ Backlog (unscheduled)
+
+*Ideas that are useful but not needed for correct models or results. They have no phase and no fixed order. Pull an item into the current phase only when users ask for it.*
+
+> **Rules for backlog items:**
+> - Backlog items are numbered **B.1, B.2, …**. These numbers are **not** phases and **not** app versions.
+> - A backlog item has no version series of its own. When it is implemented, it ships in the **current** version series (for example, at `v1.2.3` it ships as `v1.2.4`). See the versioning rule below.
+> - Before starting an item, read its review notes in the Review Notes section.
+
+### B.1 Advanced Drawing Snaps (from former item 1.3)
+- **Why deferred:** grid and joint snaps, work-plane rotate/offset, **Divide frames…** and 2.3 Snap Essentials already cover regular structures. These snaps only save taps; they do not change any result.
+- **Specification:**
+  - **Perpendicular snap:** snap to the nearest orthogonal projection onto an existing member line.
+  - **Polar angle tracking:** snap to configurable angle steps ($0^\circ, 30^\circ, 45^\circ, 90^\circ$) from the active draw origin, with dashed guide rays, inside the current work plane.
+  - **Area-edge snap:** snap to points on area edges.
+  - **Haptic feedback:** short vibration when a snap locks (Android only).
+  - **Alternative worth considering first:** typed input of length + angle (or relative coordinates) from the last joint, which is more precise than dragging along a guide ray on a touch screen.
+
+### B.2 Pen / Stylus Mode & Radial Quick Menu (from former item 2.3)
+- **Why deferred:** only helps users with a stylus. Today a pen works exactly like a finger, a stray tap is fixed with one Undo, and every radial-menu option already exists in the sidebar, toolbar or long-press menu.
+- **Specification:**
+  - **Pen mode (`src/input/gestures.ts`):** `pointerType === 'pen'` draws, selects and moves joints; `pointerType === 'touch'` only moves the camera (orbit, pan, pinch-zoom). Pen mode is **off by default**, switches on automatically the first time a pen is detected, and has a manual toggle.
+  - **Radial / pie quick menu:** options *Frame Tool*, *Joint Tool*, *Select*, *Delete*, *Run Solver*, *Toggle Work Plane*. It must replace or extend the existing long-press menu, not add a second competing gesture.
+
+---
+
 ## 🛠️ Technical Migration & Compatibility Matrix
 
 | Feature | Primary Modules Affected | `.sav` Format Changes | Backward Compatible? |
@@ -238,6 +260,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 | **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS`, `TABLE,JOINT DISPLACEMENTS` | ✅ Yes (ignored if omitted) |
 | **Section Catalog** | `model/sections`, `ui/dialogs` | None (serializes standard dimensions) | ✅ Yes |
 | **DXF Import/Export** | `io/dxf.ts`, `ui/app` | None (populates `ModelData`) | ✅ Yes |
+| **Snap Essentials (2.3)** | `input/tools`, `model/model` (`splitFrameAt`), `view/viewer` | None | ✅ Yes |
 | **P-Delta Analysis** | `solver/analyze`, `solver/frame3d` | Adds setting `PDelta,Yes/No` | ✅ Yes |
 | **Modal Analysis** | `solver/modal.ts`, `view/viewer` | None (computed dynamically) | ✅ Yes |
 | **AI Agent (Phase 5)** | new `agent/tools`, `agent/provider`, `ui/agentPanel`; uses `model/model` commit/undo | Optional `TABLE,AI LOG`; API key is **never** saved | ✅ Yes (table ignored if omitted) |
@@ -268,7 +291,7 @@ Corrections and gaps found when checking this plan against the current source. R
 - ✅ **Resolved in v1.1.8** – both 1.2 notes below: new unit quantities force/length (`FL`) and moment/rad (`MR`); reactions include spring forces (−k·u) so ΣReaction = ΣLoad; a DOF that is restrained and also has a spring keeps the restraint (analysis warning); prescribed displacements belong to a load case and are saved in `TABLE,JOINT DISPLACEMENTS` with a `LoadCase` column.
 - **1.2 Springs:** need new unit quantities in `model/units.ts` (force/length, moment/rad). Reactions must include the spring forces (−k·u), otherwise the equilibrium check (3.2) fails. A DOF that is both restrained and has a spring should keep the restraint, and the UI should warn.
 - **1.2 Prescribed displacements:** the title mentions them, but there is no specification yet. They belong to a **load case** (like loads), not to the joint. They need a table such as `TABLE,JOINT DISPLACEMENTS` with a LoadCase column.
-- **1.3 Snapping:** `gestures.ts` already uses `navigator.vibrate?.(15)`; reuse it. Polar tracking must work within the current work plane (XY/XZ/YZ + elevation). Also consider snapping to area edges and frame intersections.
+- **1.3 Snapping:** moved out of Phase 1. Its notes are now under **2.3** (midpoint/crossing) and **Backlog → B.1** (the rest).
 
 ### Phase 2
 - **2.1 Catalog:**
@@ -279,7 +302,11 @@ Corrections and gaps found when checking this plan against the current source. R
   - There is no `3DLINE` entity in DXF; a `LINE` entity is already 3D.
   - Also read `LWPOLYLINE`/`POLYLINE`, and optionally `3DFACE` → Areas.
   - Respect `$INSUNITS` for units. Reuse `COORD_TOL` from `model/model.ts` when merging endpoints.
-- **2.3 Pen vs touch:** making touch camera-only by default would break finger drawing for tablets without a stylus, and the touch joint-drag added in v1. Switch to pen mode automatically the first time a `pen` pointer is detected, and add a manual toggle. Apple Pencil/S-Pen double-tap is **not exposed to web pages**, and long-press already opens the context menu. The radial menu should replace or extend that menu rather than add a conflicting gesture.
+- **2.3 Snap Essentials:**
+  - The existing `divideFrame` in `model/model.ts` does **not** copy `relI`/`relJ` to the new pieces, so dividing a released frame loses its releases. Fix this when adding `splitFrameAt` (outer ends keep the releases), and add a test.
+  - Crossing snap works in 3D: two frames only "cross" if the shortest distance between them is ≤ `COORD_TOL` and the point lies inside both frames (not at an existing end joint).
+  - Do not split a frame when the snap lands on an existing joint; reuse that joint.
+  - `gestures.ts` already uses `navigator.vibrate?.(15)`; reuse it.
 
 ### Phase 3
 - **3.1 P-Delta:**
@@ -305,25 +332,31 @@ Corrections and gaps found when checking this plan against the current source. R
 - Decide the AI provider option (5.3) before writing code. BYOK keeps the app serverless and matches the current GitHub Pages hosting.
 - The PWA service worker must not cache AI API responses.
 
+### Backlog
+- **B.1 Advanced snaps:** polar tracking must work within the current work plane (XY/XZ/YZ + elevation). A perpendicular or area-edge snap that lands on a frame must use the same auto-split as 2.3.
+- **B.2 Pen vs touch:** making touch camera-only by default would break finger drawing for tablets without a stylus, and the touch joint-drag added in v1. Switch to pen mode automatically the first time a `pen` pointer is detected, and add a manual toggle. Apple Pencil/S-Pen double-tap is **not exposed to web pages**, and long-press already opens the context menu. The radial menu should replace or extend that menu rather than add a conflicting gesture.
+
 ### Compatibility matrix / verification
 - Add rows for Phase 4 (Material Fy, frame design parameters, case types) and mass source (modal).
 - ✅ **Release test 2 (resolved in v1.1.7 – wording fixed above):** a central *point* load gives PL/4, while **wL²/8** is for a *uniform* load. Use a beam between two **fixed** supports with M3 released at both ends, so it must match the simply supported result.
 - `ETABS Verif/` currently holds `Test 1.xlsx` only. Add a `.sav` model per benchmark next to its ETABS result.
 
 ### Suggested branch order
-`feature/phase1-core-mechanics` (this branch): 1.1 releases → 1.2 springs (+ settlements) → 1.3 snapping. Each item gets tests and README updates, then a merge to `main` and a tag (`v1.1`).
-Later phases follow the same pattern, one branch per phase: `feature/phase2-workflow-cad`, `feature/phase3-analysis-reports`, `feature/phase4-code-checks`, `feature/phase5-ai-agent` (5.1 tools → 5.2 chat panel → 5.3 provider → 5.4 safeguards).
+`feature/phase1-core-mechanics` (this branch): 1.1 releases → 1.2 springs (+ settlements). Phase 1 is complete; the former 1.3 snapping moved to 2.3 and Backlog B.1. Each item gets tests and README updates, then a merge to `main` and a tag (`v1.1`).
+Later phases follow the same pattern, one branch per phase: `feature/phase2-workflow-cad` (2.1 section catalog → 2.2 DXF → 2.3 snap essentials), `feature/phase3-analysis-reports`, `feature/phase4-code-checks`, `feature/phase5-ai-agent` (5.1 tools → 5.2 chat panel → 5.3 provider → 5.4 safeguards).
+Backlog items (B.1, B.2, …) have no fixed place in this order. Each one gets its own branch when it is pulled in, e.g. `feature/backlog-b1-advanced-snaps`.
 
 #### App versioning rule (applies to every update)
 The app version has the form `v1.P.N`. Pick `P` from the roadmap phase that the update belongs to:
 
 | Roadmap phase | App version range | Example |
 |---|---|---|
-| Phase 1 (items 1.1, 1.2, 1.3, plus Phase 1 fixes) | `v1.1.N` | `v1.1.5` → `v1.1.6` |
-| Phase 2 (items 2.1, 2.2, 2.3) | `v1.2.N` | first Phase 2 release = `v1.2.0` |
+| Phase 1 (items 1.1, 1.2, plus Phase 1 fixes) | `v1.1.N` | `v1.1.5` → `v1.1.6` |
+| Phase 2 (items 2.1, 2.2, 2.3 Snap Essentials) | `v1.2.N` | first Phase 2 release = `v1.2.0` |
 | Phase 3 (items 3.1, 3.2, 3.3) | `v1.3.N` | first Phase 3 release = `v1.3.0` |
 | Phase 4 (design & code checks) | `v1.4.N` | first Phase 4 release = `v1.4.0` |
 | Phase 5 (AI agent, items 5.1–5.5) | `v1.5.N` | first Phase 5 release = `v1.5.0` |
+| Backlog (items B.1, B.2, …) | no own series: use the **current** series | at `v1.2.3`, a backlog item ships as `v1.2.4` |
 
 Follow these rules for every update:
 1. **The roadmap item number is not the app version.** Roadmap item "1.2 Elastic Spring Supports" is still Phase 1, so it ships as `v1.1.N`, **not** `v1.2.x`.
