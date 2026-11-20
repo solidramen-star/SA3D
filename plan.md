@@ -10,16 +10,17 @@ This document outlines the product and engineering roadmap for **StructApp 3D** 
 2. **Workflow Acceleration:** Provide built-in standard steel/concrete section databases (AISC, Eurocode, British Standards) and 3D DXF CAD wireframe import.
 3. **Touch & Tablet Productivity:** Exploit pen/stylus precision (Apple Pencil / S-Pen vs. finger discrimination), advanced geometric snapping (midpoint, perpendicular, polar angle tracking), and radial context menus.
 4. **Professional Deliverables:** Offer automated PDF calculation reports (equilibrium verification, peak force envelopes, 3D views) and steel capacity/utilization checks (AISC 360 / Eurocode 3).
+5. **AI Assistance (far future):** An optional AI agent that builds and edits models from plain-language requests, runs the analysis and explains the results, using only the app's own tools and solver.
 
 ---
 
 ## 🗺️ Roadmap Overview
 
 ```
-Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non-Linear & Reports ──► Phase 4: Code Checks
-• Member End Releases       • Standard Section Library    • P-Delta (P-Δ) Solver           • AISC / EC3 Capacity
-• Spring Supports           • DXF Centerline Import       • PDF Calculation Reports        • Shell / Plate Elements
-• Snapping Engine v2        • Apple Pencil / Stylus Mode  • Dynamic Modal Frequencies      • Auto Load Combinations
+Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non-Linear & Reports ──► Phase 4: Code Checks ──► Phase 5: AI Agent
+• Member End Releases       • Standard Section Library    • P-Delta (P-Δ) Solver           • AISC / EC3 Capacity    • Chat Assistant Panel
+• Spring Supports           • DXF Centerline Import       • PDF Calculation Reports        • Shell / Plate Elements • Model Tools (build/edit)
+• Snapping Engine v2        • Apple Pencil / Stylus Mode  • Dynamic Modal Frequencies      • Auto Load Combinations • Explain & Check Results
 ```
 
 ---
@@ -178,6 +179,51 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 ---
 
+## 📌 Phase 5: AI Agent Assistant (Far Future)
+
+*Target: Let users build, check and explain models in plain language ("add a 3-bay portal frame, 6 m spans, 4 m high, fixed bases"), while every change stays visible, undoable and verified by the real solver.*
+
+> **Status:** idea / not scheduled. Start only after Phases 1–4 are stable, because the agent relies on their features (releases, springs, catalog sections, load combinations, code checks, reports).
+
+### 5.1 Agent Architecture & Tool Layer
+- **Principle:** the AI never edits `ModelData` directly and never computes structural results itself. It calls a fixed set of **typed tools**, and the app executes them with the existing code (`model/model.ts`, `solver/*`). The solver is the only source of numbers.
+- **Tool registry (`src/agent/tools.ts`, new):** each tool has a name, a JSON schema for its arguments, and a handler that calls existing functions. Examples:
+  - *Read:* `get_model_summary`, `list_joints`, `list_frames`, `get_selection`, `get_results(case|combo)`, `get_frame_forces(id)`.
+  - *Edit:* `add_joints`, `add_frames`, `add_areas`, `define_material`, `define_section`, `assign_section`, `assign_releases`, `assign_supports`, `add_load_case`, `add_joint_load`, `add_frame_load`, `add_combination`, `delete`.
+  - *Generate:* `generate_grid_frame(bays, spans, storeys, heights)`, `generate_truss(type, span, depth, panels)`, `generate_beam(spans, supports)`.
+  - *Analyze/View:* `run_analysis`, `show_deformed(scale)`, `show_diagram(type)`, `select(ids)`, `zoom_to(ids)`.
+- **Validation:** every handler checks its arguments with the same rules as the dialogs (units, positive dimensions, `releaseMechanismError`, unknown names). Invalid calls return an error message to the agent and change nothing.
+- **Undo:** one agent request = one `Model.commit(...)` step, labelled e.g. `AI: add portal frame`, so a single Undo reverts it.
+- **Units:** tools take and return values in the model's current display units (`model/units.ts`); the tool descriptions state the units.
+
+### 5.2 Chat Panel UI (touch-friendly)
+- A collapsible side panel (`src/ui/agentPanel.ts`, new) with a text box, the on-device dictation/microphone button of the OS keyboard, and suggestion chips (e.g. *"Check equilibrium"*, *"Explain the largest moment"*, *"Make all columns HEB 200"*).
+- **Preview before apply:** edit tools first return a *proposed change* (count of joints/frames/loads added, changed, deleted), highlighted in the 3D view in a ghost colour. The user taps **Apply** or **Discard**. A setting may allow auto-apply for read-only and view tools.
+- Each step the agent takes (tool name + short summary) is shown in the chat so the user can see what was done.
+- Results answers must quote the solver values with units and the case/combination used; "explain" answers link to the relevant frame/joint (tap to select it).
+
+### 5.3 AI Provider, Privacy & Security
+- The app is a static PWA on GitHub Pages with no server. Options, to be decided at the start of the phase:
+  1. **Bring-your-own-key (BYOK):** the user enters their own API key (OpenAI / Azure OpenAI / Anthropic / etc.); it is stored only in the browser (`localStorage`/IndexedDB), never in the source code, the `.sav` file or the repo.
+  2. **Small proxy service** (e.g. a serverless function) that holds the key. This needs hosting, authentication and rate limiting.
+  3. **On-device model** (WebGPU / WebLLM) for offline use: private, but large download and weaker tool-calling.
+- Use a provider-neutral adapter (`src/agent/provider.ts`) so the provider can change without touching the tools.
+- **Privacy:** show clearly that model data is sent to the chosen AI provider. Send only what is needed (summary + requested tables), not the whole file by default.
+- **Offline:** the app must keep working without the agent. When offline or with no key, the panel is disabled with a short explanation.
+
+### 5.4 Engineering Safeguards
+- The agent must **not** invent results. Any number it reports must come from `get_results` / `get_frame_forces` after `run_analysis`.
+- Code-check answers (Phase 4) must name the design code and clause and come from the code-check module, not from the AI's own knowledge.
+- Every AI answer that states results or design advice shows a short notice: *"AI-assisted. Check results before use; the engineer of record is responsible."*
+- Changes made by the agent are tagged in the undo history and can optionally be written to a `TABLE,AI LOG` in the `.sav` file (time, request, summary of changes), for traceability.
+
+### 5.5 Testing & Versioning
+- Tool handlers are normal TypeScript functions, so test them **without** an AI: `tests/agentTools.test.ts` calls each tool with valid and invalid arguments and checks the model and the undo step.
+- Keep a small set of scripted conversations (recorded tool-call sequences) as regression tests, e.g. "portal frame → analyze → max M3" must give the same model and results as building it by hand.
+- Phase 5 releases use app version `v1.5.N` (see the versioning rule below).
+
+---
+
 ## 🛠️ Technical Migration & Compatibility Matrix
 
 | Feature | Primary Modules Affected | `.sav` Format Changes | Backward Compatible? |
@@ -188,6 +234,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 | **DXF Import/Export** | `io/dxf.ts`, `ui/app` | None (populates `ModelData`) | ✅ Yes |
 | **P-Delta Analysis** | `solver/analyze`, `solver/frame3d` | Adds setting `PDelta,Yes/No` | ✅ Yes |
 | **Modal Analysis** | `solver/modal.ts`, `view/viewer` | None (computed dynamically) | ✅ Yes |
+| **AI Agent (Phase 5)** | new `agent/tools`, `agent/provider`, `ui/agentPanel`; uses `model/model` commit/undo | Optional `TABLE,AI LOG`; API key is **never** saved | ✅ Yes (table ignored if omitted) |
 
 ---
 
