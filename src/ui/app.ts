@@ -781,6 +781,7 @@ export class App {
     return [
       { label: 'Materials…', action: () => D.defineMaterials(this) },
       { label: 'Frame sections…', action: () => D.defineSections(this) },
+      { label: 'Section catalogs…', action: () => D.catalogManager(this) },
       { label: 'Support types…', action: () => D.defineSupports(this) },
       { separator: true },
       { label: 'Grid & work plane…', action: () => D.defineGrid(this) },
@@ -913,8 +914,9 @@ export class App {
               h(
                 'p',
                 { class: 'msg' },
-                `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nTouch-friendly 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases and shear deformation).`,
-              ),
+                `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nLight Weight 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases and                 shear deformation).\nFor more information, contact me at: `,
+                                h('a', { href: 'mailto:rama.ditasuwita@shimz.biz' }, 'rama.ditasuwita@shimz.biz'),
+                              ),
               h('h3', null, 'Version history'),
               h(
                 'div',

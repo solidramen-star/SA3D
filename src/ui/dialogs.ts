@@ -37,6 +37,9 @@ import {
   type WorkPlane,
 } from '../model/types';
 import { fmt, fmtU, uLabel, units, withU, type Qty } from '../model/units';
+import { addUserCatalogs, allCatalogs, deleteUserCatalog, entryToSection, loadUserCatalogs, searchCatalogs, BUILTIN_CATALOGS, type Catalog, type CatalogEntry } from '../model/catalog';
+import { catalogTemplateCsv, parseCatalogCsv, writeCatalogCsv } from '../io/catalogCsv';
+import { openText, saveText } from '../io/fileAccess';
 
 const sameR = (a: Restraint, b: Restraint) => a.every((v, i) => v === b[i]);
 export const restraintText = (r: Restraint) => (r.some(Boolean) ? DOF_NAMES.filter((_, i) => r[i]).join(' ') : 'Free');
@@ -217,7 +220,7 @@ export function defineSections(app: App): void {
           const used = m.data.frames.filter((f) => f.section === s.name).length;
           return [
             document.createTextNode(s.name),
-            document.createTextNode(SHAPE_LABEL[s.shape]),
+            document.createTextNode(SHAPE_LABEL[s.shape] + (s.catalog ? ` (${s.catalog})` : '')),
             document.createTextNode(s.dims.map((v, k) => fmtU(v, dimQty(s.shape, k), 4)).join(' × ')),
             document.createTextNode(fmtU(p.A, 'A', 4)),
             document.createTextNode(fmtU(p.I33, 'L4', 4)),
@@ -226,7 +229,7 @@ export function defineSections(app: App): void {
           ];
         }),
       ),
-      h('div', { class: 'dlg-actions' }, btn('+ Add section', () => edit(null), 'primary')),
+      h('div', { class: 'dlg-actions' }, btn('+ Add section', () => edit(null), 'primary'), btn('Section catalogs…', () => catalogManager(app))),
     );
   };
   const del = async (s: Section) => {
@@ -256,7 +259,34 @@ export function defineSections(app: App): void {
       C: [0.15, 0.065, 0.02, 0.0023],
       general: [0.01, 1e-4, 1e-5, 1e-6],
     };
-    const current = (): Section => ({ name: name.get(), shape: shape.get(), dims: dimFields.map((f) => f.get()) });
+    // Catalog link: published properties and mass stay valid only while the dimensions are unchanged.
+    let link: Pick<Section, 'catalog' | 'props' | 'mass'> = sec ? { catalog: sec.catalog, props: sec.props, mass: sec.mass } : {};
+    const current = (): Section => {
+      const s: Section = { name: name.get(), shape: shape.get(), dims: dimFields.map((f) => f.get()) };
+      if (link.catalog) s.catalog = link.catalog;
+      if (link.props && s.shape !== 'general') s.props = { ...link.props };
+      if (link.mass) s.mass = link.mass;
+      return s;
+    };
+    const linkNote = h('div', { class: 'muted small' });
+    const showLink = () => {
+      if (!link.catalog && !link.props) return void linkNote.replaceChildren();
+      const what = link.props ? 'published A, I33, I22, J used' : 'properties computed from the dimensions';
+      const mass = link.mass ? ` · ${fmt(link.mass, 4)} kg/m` : '';
+      linkNote.replaceChildren(
+        `Catalog: ${link.catalog ?? '–'} — ${what}${mass} `,
+        btn('Unlink', () => {
+          link = {};
+          showLink();
+          update();
+        }),
+      );
+    };
+    const unlink = () => {
+      if (!link.catalog && !link.props && !link.mass) return;
+      link = {};
+      showLink();
+    };
     const update = () => {
       const s = current();
       const err = s.dims.some((v) => !Number.isFinite(v)) ? 'Enter all dimensions' : validateSection(s);
@@ -270,23 +300,60 @@ export function defineSections(app: App): void {
         ),
       );
     };
-    const buildDims = (useExisting: boolean) => {
+    const buildDims = (vals: number[]) => {
       const sh = shape.get();
-      const vals = useExisting && sec && sec.shape === sh ? sec.dims : defaults[sh];
       dimFields = SHAPE_DIMS[sh].map((label, i) => numField(label, vals[i], { q: dimQty(sh, i), positive: true }));
       dimsBox.replaceChildren(...dimFields.map((f) => f.row));
-      for (const f of dimFields) f.input.addEventListener('input', update);
+      for (const f of dimFields)
+        f.input.addEventListener('input', () => {
+          unlink();
+          update();
+        });
       update();
     };
-    shape.input.addEventListener('change', () => buildDims(false));
-    buildDims(true);
+    shape.input.addEventListener('change', () => {
+      unlink();
+      buildDims(defaults[shape.get()]);
+    });
+    buildDims(sec ? sec.dims : defaults[shape.get()]);
+    showLink();
+
+    // Catalog picker: type to search, tap a result to fill in the shape and dimensions.
+    const search = h('input', { type: 'search', placeholder: 'Search catalog, e.g. IPE 200, WF 300, HEA', autocomplete: 'off', spellcheck: 'false' });
+    const results = h('div', { class: 'cat-results' });
+    const pick = (catalog: Catalog, entry: CatalogEntry) => {
+      const s = entryToSection(entry, catalog.name);
+      const taken = m.data.sections.some((x) => x !== sec && x.name === s.name);
+      if (!taken) name.set(s.name);
+      shape.set(s.shape);
+      link = { catalog: s.catalog, props: s.props, mass: s.mass };
+      buildDims(s.dims);
+      showLink();
+      search.value = '';
+      results.replaceChildren();
+      if (taken) toast(`Section "${s.name}" already exists; enter another name`, 'warn');
+    };
+    search.addEventListener('input', () => {
+      const q = search.value.trim();
+      if (!q) return void results.replaceChildren();
+      const hits = searchCatalogs(q, allCatalogs(), 40);
+      results.replaceChildren(
+        ...(hits.length
+          ? hits.map(({ catalog, entry }) =>
+              h('button', { class: 'btn small cat-hit', type: 'button', onclick: () => pick(catalog, entry) }, entry.name, h('span', { class: 'muted' }, ' · ' + catalog.name)),
+            )
+          : [h('div', { class: 'muted small' }, 'No match. Import your own table under Define → Section catalogs….')]),
+      );
+    });
+    const pickerRow = h('label', { class: 'field' }, h('span', { class: 'field-label' }, 'From catalog'), h('span', { class: 'field-input' }, search));
+
     openDialog({
       title: sec ? `Edit section ${sec.name}` : 'Add frame section',
       wide: true,
       body: h(
         'div',
         { class: 'two-col' },
-        h('div', { class: 'form' }, name.row, shape.row, dimsBox),
+        h('div', { class: 'form' }, pickerRow, results, linkNote, name.row, shape.row, dimsBox),
         h('div', null, sketchBox, propsBox, h('p', { class: 'muted small' }, 'Local axis 2 is the section depth direction (up for horizontal members); local 3 is the width direction.')),
       ),
       buttons: [
@@ -315,6 +382,110 @@ export function defineSections(app: App): void {
   };
   render();
   openDialog({ title: 'Define frame sections', body, wide: true, buttons: [{ label: 'Close', kind: 'primary' }] });
+}
+
+const csvUnit = () => (/(^|-)(in|ft)$/.test(units().id) ? 'in' : 'mm');
+const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'catalog';
+
+/** Section catalog library: built-in starter tables plus user tables imported from CSV (edited in Excel). */
+export function catalogManager(_app: App): void {
+  const body = h('div');
+  const exportCsv = async (cats: Catalog[], fileName: string) => {
+    try {
+      const r = await saveText(writeCatalogCsv(cats, csvUnit()), fileName, null, 'csv');
+      if (r) toast(`Saved ${r.name}`, 'ok');
+    } catch (e) {
+      alertDialog('Export failed', String(e));
+    }
+  };
+  const render = () => {
+    const user = loadUserCatalogs();
+    const builtinNames = new Set(BUILTIN_CATALOGS.map((c) => c.name.toLowerCase()));
+    body.replaceChildren(
+      h(
+        'p',
+        { class: 'muted small' },
+        'Catalogs are tables of sections you can pick from in Define → Frame sections. Export one to see the format, edit or extend it in Excel ' +
+          '(save as CSV), then import it. Imported catalogs are kept in this browser; models remain self-contained because each section stores its own values.',
+      ),
+      listTable(
+        ['Catalog', 'Source', 'Sections', ''],
+        allCatalogs(user).map((c) => {
+          const shadows = c.source === 'user' && builtinNames.has(c.name.toLowerCase());
+          const src = c.source === 'builtin' ? 'Built-in' : `Imported${c.imported ? ' ' + new Date(c.imported).toLocaleDateString() : ''}${shadows ? ' (replaces built-in)' : ''}`;
+          return [
+            document.createTextNode(c.name),
+            document.createTextNode(src),
+            document.createTextNode(String(c.entries.length)),
+            h(
+              'span',
+              { class: 'row-btns' },
+              btn('Export', () => exportCsv([c], fileSafe(c.name) + '.csv')),
+              c.source === 'user' ? btn(shadows ? 'Restore built-in' : 'Delete', () => del(c), 'small danger') : '',
+            ),
+          ];
+        }),
+      ),
+      h(
+        'div',
+        { class: 'dlg-actions' },
+        btn('Import CSV…', () => importCsv(), 'primary'),
+        btn('Download template', () => saveText(catalogTemplateCsv(), 'section-catalog-template.csv', null, 'csv')),
+        btn('Export all', () => exportCsv(allCatalogs(), 'section-catalogs.csv')),
+      ),
+    );
+  };
+  const del = async (c: Catalog) => {
+    if (!(await confirmDialog('Delete catalog', `Delete imported catalog "${c.name}" (${c.entries.length} sections) from this browser? Sections already in models are not affected.`, 'Delete', true)))
+      return;
+    if (!deleteUserCatalog(c.name)) toast('Could not update browser storage', 'error');
+    render();
+  };
+  const importCsv = async () => {
+    const f = await openText('csv');
+    if (!f) return;
+    const res = parseCatalogCsv(f.text, f.name.replace(/\.[^.]*$/, '') || 'Imported');
+    const existing = new Set(allCatalogs().map((c) => c.name.toLowerCase()));
+    const count = res.catalogs.reduce((n, c) => n + c.entries.length, 0);
+    const issue = (i: { line: number; msg: string }) => h('li', null, (i.line ? `Line ${i.line}: ` : '') + i.msg);
+    const report = h(
+      'div',
+      { class: 'form' },
+      h('p', null, `${f.name} — units ${res.unit}, ${count} valid section(s).`),
+      res.catalogs.length
+        ? listTable(
+            ['Catalog', 'Sections', ''],
+            res.catalogs.map((c) => [
+              document.createTextNode(c.name),
+              document.createTextNode(String(c.entries.length)),
+              document.createTextNode(existing.has(c.name.toLowerCase()) ? 'replaces existing' : 'new'),
+            ]),
+          )
+        : '',
+      res.errors.length ? h('div', null, h('strong', null, `${res.errors.length} row(s) skipped:`), h('ul', { class: 'issues err' }, ...res.errors.slice(0, 100).map(issue))) : '',
+      res.warnings.length ? h('div', null, h('strong', null, `${res.warnings.length} warning(s):`), h('ul', { class: 'issues' }, ...res.warnings.slice(0, 100).map(issue))) : '',
+    );
+    openDialog({
+      title: 'Import section catalog',
+      wide: true,
+      body: report,
+      buttons: [
+        { label: 'Cancel' },
+        {
+          label: count ? `Import ${count} section(s)` : 'Nothing to import',
+          kind: 'primary',
+          action: () => {
+            if (!count) return;
+            if (!addUserCatalogs(res.catalogs)) return fail('Could not save to browser storage (full or disabled)');
+            toast(`Imported ${count} section(s)`, 'ok');
+            render();
+          },
+        },
+      ],
+    });
+  };
+  render();
+  openDialog({ title: 'Section catalogs', body, wide: true, buttons: [{ label: 'Close', kind: 'primary' }] });
 }
 
 function restraintChecks(r: Restraint) {

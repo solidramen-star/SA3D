@@ -1,5 +1,5 @@
-export const APP_VERSION = '1.1.8';
-export const APP_UPDATE_DATE = '2026-11-20';
+export const APP_VERSION = '1.2.0';
+export const APP_UPDATE_DATE = '2026-11-24';
 
 export interface ChangelogEntry {
   version: string;
@@ -9,6 +9,17 @@ export interface ChangelogEntry {
 
 /** Newest first. Shown in Help ▸ About. */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.2.0',
+    date: '2026-11-24',
+    changes: [
+      'Section catalogs: search and pick a standard section (IPE, HEA, HEB, WF) in Define ▸ Frame sections',
+      'Define ▸ Section catalogs… imports your own tables from CSV files edited in Excel (comma or semicolon, decimal point or comma)',
+      'Export any catalog or download a template to see the format; import shows a report of skipped rows and warnings',
+      'Published A, I33, I22 and J from a catalog override the values computed from the dimensions',
+      '.sav SECTIONS table gains Override, Catalog and Mass columns (older files still open)',
+    ],
+  },
   {
     version: '1.1.8',
     date: '2026-11-20',

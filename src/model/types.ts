@@ -26,6 +26,19 @@ export interface Section {
   shape: SectionShape;
   /** Shape dimensions in m. See SHAPE_DIMS for meaning per shape. For 'general' these are A, I33, I22, J. */
   dims: number[];
+  /** Published section properties (e.g. from a catalog, including root fillets). They override the shape formulas. */
+  props?: SectionPropsOverride;
+  /** Catalog the section was taken from (information only). */
+  catalog?: string;
+  /** Nominal mass per length in kg/m (information only). */
+  mass?: number;
+}
+
+export interface SectionPropsOverride {
+  A: number;
+  I33: number;
+  I22: number;
+  J: number;
 }
 
 export interface SupportType {

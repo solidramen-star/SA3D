@@ -141,7 +141,16 @@ export function channelOutline(s: Section): [number, number][] | null {
   return pts.map(([x, y]) => [x - xc, y]);
 }
 
+/** Section properties; published values in `s.props` override the shape formulas (shear areas stay computed). */
 export function sectionProps(s: Section): SectionProps {
+  const p = shapeProps(s);
+  const o = s.props;
+  if (!o || s.shape === 'general') return p;
+  return { ...p, A: o.A, I33: o.I33, I22: o.I22, J: o.J };
+}
+
+/** Properties computed from the shape dimensions only (no root fillets). */
+export function shapeProps(s: Section): SectionProps {
   const d = s.dims;
   switch (s.shape) {
     case 'rect': {
@@ -226,5 +235,7 @@ export function validateSection(s: Section): string | null {
     if (c <= t) return 'Lip must be longer than the thickness';
     if (2 * c >= h) return 'Lips too long for depth';
   }
+  const o = s.props;
+  if (o && ![o.A, o.I33, o.I22, o.J].every((v) => Number.isFinite(v) && v > 0)) return 'Published A, I33, I22 and J must be positive';
   return null;
 }

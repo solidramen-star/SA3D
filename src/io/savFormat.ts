@@ -14,6 +14,7 @@ import {
   type LoadDir,
   type ModelData,
   type Restraint,
+  type Section,
   type SectionShape,
   type Springs,
   type WorkPlane,
@@ -113,11 +114,13 @@ export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new
   );
   out += table(
     'SECTIONS',
-    ['Name', 'Shape', 'Dim1', 'Dim2', 'Dim3', 'Dim4', `A (${un('A')})`, `I33 (${un('L4')})`, `I22 (${un('L4')})`,     `J (${un('L4')})`, `As2 (${un('A')})`, `As3 (${un('A')})`],
+    // Override = Yes: A/I33/I22/J are published values and are read back; otherwise they are computed and ignored on read.
+    ['Name', 'Shape', 'Dim1', 'Dim2', 'Dim3', 'Dim4', `A (${un('A')})`, `I33 (${un('L4')})`, `I22 (${un('L4')})`, `J (${un('L4')})`, `As2 (${un('A')})`, `As3 (${un('A')})`, 'Override', 'Catalog', 'Mass (kg/m)'],
     d.sections.map((sec) => {
       const p = sectionProps(sec);
       const dims = [0, 1, 2, 3].map((k) => (sec.dims[k] === undefined ? '' : c(sec.dims[k], dimQty(sec.shape, k))) as number | string);
-          return [sec.name, sec.shape, ...dims, c(p.A, 'A'), c(p.I33, 'L4'), c(p.I22, 'L4'), c(p.J, 'L4'), c(p.As2, 'A'), c(p.As3, 'A')];
+      const over = !!sec.props && sec.shape !== 'general';
+      return [sec.name, sec.shape, ...dims, c(p.A, 'A'), c(p.I33, 'L4'), c(p.I22, 'L4'), c(p.J, 'L4'), c(p.As2, 'A'), c(p.As3, 'A'), over, sec.catalog ?? '', sec.mass ?? ''];
     }),
   );
   out += table(
@@ -232,11 +235,9 @@ export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new
   return out;
 }
 
-/** RFC 4180 parser. Detects ';' delimiter (Excel in some locales) when the file has no commas. */
-export function parseCsv(text: string): string[][] {
+/** RFC 4180 parser. Detects the ';' delimiter (Excel in some locales) when the first line has more ';' than ','. */
+export function parseCsv(text: string, delim: ',' | ';' = csvDelimiter(text)): string[][] {
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  const firstLine = text.slice(0, text.search(/\r?\n|$/));
-  const delim = !firstLine.includes(',') && firstLine.includes(';') ? ';' : ',';
   const rows: string[][] = [];
   let cur: string[] = [];
   let field = '';
@@ -267,6 +268,26 @@ export function parseCsv(text: string): string[][] {
     rows.push(cur);
   }
   return rows;
+}
+
+/**
+ * Number from a CSV cell. `decimalComma` is true for ';'-separated files (Excel in comma-decimal locales):
+ * then "1.234,5" and "1,5" are read with ',' as the decimal mark; otherwise ',' is a thousands separator
+ * ("1,234.5"). NaN for an empty or invalid cell.
+ */
+export function parseCsvNumber(raw: string, decimalComma = false): number {
+  let t = raw.replace(/[\s\u00a0']/g, '');
+  if (t === '') return NaN;
+  if (decimalComma && t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else t = t.replace(/,/g, '');
+  return Number(t);
+}
+
+export function csvDelimiter(text: string): ',' | ';' {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+  const firstLine = text.slice(0, text.search(/\r?\n|$/)).replace(/"[^"]*"/g, '');
+  const count = (ch: string) => firstLine.split(ch).length - 1;
+  return count(';') > count(',') ? ';' : ',';
 }
 
 interface RawTable {
@@ -308,6 +329,7 @@ class Row {
     private t: RawTable,
     private cells: string[],
     readonly line: number,
+    private decimalComma = false,
   ) {}
   private idx(col: string, fallback: number): number {
     const i = this.t.header.indexOf(col.toUpperCase());
@@ -327,7 +349,7 @@ class Row {
       if (def !== undefined) return def;
       throw new SavError(`Line ${this.line} (${this.t.name}): missing ${col}`);
     }
-    const v = Number(raw.replace(/\s/g, ''));
+    const v = parseCsvNumber(raw, this.decimalComma);
     if (!Number.isFinite(v)) throw new SavError(`Line ${this.line} (${this.t.name}): "${raw}" is not a number (${col})`);
     return v;
   }
@@ -344,10 +366,11 @@ class Row {
 export function readSav(text: string, info?: SavInfo): ModelData {
   const tables = splitTables(parseCsv(text));
   if (!tables.length) throw new SavError('No tables found. A .sav file must contain rows like "TABLE,JOINTS".');
+  const decimalComma = csvDelimiter(text) === ';';
   const get = (name: string) => tables.find((t) => t.name === name);
   const rowsOf = (name: string) => {
     const t = get(name);
-    return t ? t.rows.map((r) => new Row(t, r.cells, r.line)) : [];
+    return t ? t.rows.map((r) => new Row(t, r.cells, r.line, decimalComma)) : [];
   };
   const d = defaultModel();
 
@@ -388,7 +411,15 @@ export function readSav(text: string, info?: SavInfo): ModelData {
         if (Number.isFinite(v)) dims.push(si(v, dimQty(shape, k - 1)));
         else break;
       }
-      return { name: r.str('Name', 0), shape, dims };
+      const sec: Section = { name: r.str('Name', 0), shape, dims };
+      if (shape !== 'general' && r.bool('Override', -1)) {
+        sec.props = { A: si(r.num('A', 6), 'A'), I33: si(r.num('I33', 7), 'L4'), I22: si(r.num('I22', 8), 'L4'), J: si(r.num('J', 9), 'L4') };
+      }
+      const cat = r.str('Catalog', -1, '');
+      if (cat) sec.catalog = cat;
+      const mass = r.num('Mass', -1, NaN);
+      if (mass > 0) sec.mass = mass;
+      return sec;
     });
   }
   if (get('SUPPORT TYPES')) {

@@ -21,7 +21,12 @@ type W = Window & {
   showOpenFilePicker?: (o: PickerOpts) => Promise<FsFileHandle[]>;
 };
 
-const SAV_TYPES = [{ description: 'StructApp 3D model', accept: { 'text/csv': ['.sav'] } }];
+export type FileKind = 'sav' | 'csv';
+
+const FILE_TYPES: Record<FileKind, PickerOpts['types']> = {
+  sav: [{ description: 'StructApp 3D model', accept: { 'text/csv': ['.sav'] } }],
+  csv: [{ description: 'CSV table (Excel)', accept: { 'text/csv': ['.csv'] } }],
+};
 
 export const hasFsAccess = () => typeof (window as W).showSaveFilePicker === 'function';
 
@@ -32,17 +37,18 @@ export interface SaveResult {
   handle: FsFileHandle | null;
 }
 
-function ensureExt(name: string): string {
-  name = name.trim() || 'model';
-  return /\.sav$/i.test(name) ? name : name.replace(/\.[^.]*$/, '') + '.sav';
+function ensureExt(name: string, kind: FileKind = 'sav'): string {
+  name = name.trim() || (kind === 'sav' ? 'model' : 'table');
+  const ext = '.' + kind;
+  return name.toLowerCase().endsWith(ext) ? name : name.replace(/\.[^.]*$/, '') + ext;
 }
 
 /** Save text. Re-uses `handle` when given (plain Save), otherwise asks for a location. Returns null if cancelled. */
-export async function saveText(text: string, suggestedName: string, handle: FsFileHandle | null): Promise<SaveResult | null> {
+export async function saveText(text: string, suggestedName: string, handle: FsFileHandle | null, kind: FileKind = 'sav'): Promise<SaveResult | null> {
   const w = window as W;
   if (w.showSaveFilePicker) {
     try {
-      const h = handle ?? (await w.showSaveFilePicker({ suggestedName: ensureExt(suggestedName), types: SAV_TYPES }));
+      const h = handle ?? (await w.showSaveFilePicker({ suggestedName: ensureExt(suggestedName, kind), types: FILE_TYPES[kind] }));
       const ws = await h.createWritable();
       await ws.write(text);
       await ws.close();
@@ -52,7 +58,7 @@ export async function saveText(text: string, suggestedName: string, handle: FsFi
       console.warn('File System Access save failed, falling back to download', e);
     }
   }
-  const name = ensureExt(suggestedName);
+  const name = ensureExt(suggestedName, kind);
   // BOM-less UTF-8 keeps Excel happy for ASCII content; names with accents still open fine in Excel 365.
   const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -69,11 +75,11 @@ export async function saveText(text: string, suggestedName: string, handle: FsFi
 const isIOS = () =>
   /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-export async function openText(): Promise<{ name: string; text: string; handle: FsFileHandle | null } | null> {
+export async function openText(kind: FileKind = 'sav'): Promise<{ name: string; text: string; handle: FsFileHandle | null } | null> {
   const w = window as W;
   if (w.showOpenFilePicker) {
     try {
-      const [h] = await w.showOpenFilePicker({ types: SAV_TYPES });
+      const [h] = await w.showOpenFilePicker({ types: FILE_TYPES[kind] });
       const f = await h.getFile();
       return { name: f.name, text: await f.text(), handle: h };
     } catch (e) {

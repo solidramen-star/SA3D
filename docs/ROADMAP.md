@@ -87,16 +87,26 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 *Target: Eliminate manual dimension entry, enable CAD imports, and optimize tablet input.*
 
-### 2.1 Standard Steel Section Library (AISC, Eurocode, British)
-- **Problem:** Users must manually compute and type dimensions (depth, width, flange/web thickness) for standard profiles.
+### 2.1 Section Catalog Library, Editable in Excel (AISC, Eurocode, British, user/local)
+- **Problem:** Users must manually compute and type dimensions (depth, width, flange/web thickness) for standard profiles. Users also need their **own** catalogs, based on the profiles sold in their local market or country.
 - **Specification:**
-  - Integrate compact JSON datasets:
-    - **AISC 15th Edition:** W-shapes, HSS Rectangular/Round, Channels (C/MC), Equal/Unequal Angles (L).
-    - **European Standards (EN 10365 / EN 10210):** IPE, IPN, HEA, HEB, HEM, SHS, RHS.
-    - **British Standards:** UB, UC, PFC.
-  - Add a "Catalog" tab in the Section Definition dialog (`src/ui/dialogs.ts`):
-    - Searchable autocomplete field (e.g., `W14X90`, `IPE 300`, `HEB 200`).
-    - Selecting an entry automatically populates shape type, dimensions, $A$, $I_{33}$, $I_{22}$, $J$, and nominal weight.
+  - **Catalog format = CSV table** (one row per section), the same format for built-in and user catalogs, so any catalog can be opened, edited and saved in MS Excel:
+    - Columns: `Catalog, Name, Shape, d, bf, tf, tw, A, I33, I22, J, kg/m`, plus a units row (`Units, mm` / `cm` / `m` / `in`).
+    - `Shape` uses the app's shapes: `I`, `box`, `pipe`, `unp`, `C`, `rect`, `circle`, `general`.
+    - **Published properties:** if `A`, `I33`, `I22`, `J` are filled in, they override the shape formulas (so catalog values with root fillets are used in the analysis). If they are empty, the properties are computed from the dimensions.
+  - **Catalog Manager** (Define → Section catalogs…):
+    - Lists built-in and imported catalogs (name, rows, source).
+    - **Export** a catalog, or an empty **template**, as `.csv`; the user edits it in Excel and saves it as CSV.
+    - **Import** a `.csv` catalog: adds a new catalog or replaces one with the same name. Several catalogs can be loaded at once.
+    - Before importing, show a **validation report** (unknown shape, missing / negative values, impossible geometry, duplicate names). Bad rows are skipped; the user confirms.
+    - The importer accepts Excel's locale variants: `;` as delimiter and `,` as decimal separator, with or without a UTF-8 BOM.
+    - Delete imported catalogs.
+  - **Storage:** imported catalogs are kept in browser storage (localStorage), so they persist and work offline. iPad / Android browsers cannot re-read a local folder, so after editing a catalog in Excel the user imports it again.
+  - **Starter data:** a small built-in starter set (e.g. EN IPE / HEA / HEB, common WF sizes) with nominal dimensions only (properties computed). Full official tables (AISC 15th, EN 10365 / EN 10210, BS UB/UC/PFC, SNI / JIS) can be imported as CSV once their redistribution licence is checked.
+  - Add a "Catalog" picker in the Section Definition dialog (`src/ui/dialogs.ts`):
+    - Searchable field across all catalogs (e.g., `W14X90`, `IPE 300`, `HEB 200`).
+    - Selecting an entry automatically populates name, shape type, dimensions, $A$, $I_{33}$, $I_{22}$, $J$, and nominal weight.
+  - **`.sav` portability:** the `.sav` SECTIONS table stores the full values used (dimensions + override properties + catalog name), so a model opens correctly on a device that does not have the catalog.
 
 ---
 
@@ -258,7 +268,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 |---|---|---|---|
 | **Member Releases** | `model/types`, `solver/frame3d`, `ui/inspector`, `view/viewer` | Adds `Rel_I`, `Rel_J` to `TABLE,FRAMES` | ✅ Yes (defaults to Rigid) |
 | **Spring Supports** | `model/types`, `solver/analyze`, `ui/dialogs` | Adds `TABLE,SPRINGS`, `TABLE,JOINT DISPLACEMENTS` | ✅ Yes (ignored if omitted) |
-| **Section Catalog** | `model/sections`, `ui/dialogs` | None (serializes standard dimensions) | ✅ Yes |
+| **Section Catalog** | `model/sections`, `model/catalog`, `ui/dialogs`, `io/savFormat` | Backward compatible: optional `Catalog`, `Override` columns in the SECTIONS table; older files load unchanged | ✅ Yes |
 | **DXF Import/Export** | `io/dxf.ts`, `ui/app` | None (populates `ModelData`) | ✅ Yes |
 | **Snap Essentials (2.3)** | `input/tools`, `model/model` (`splitFrameAt`), `view/viewer` | None | ✅ Yes |
 | **P-Delta Analysis** | `solver/analyze`, `solver/frame3d` | Adds setting `PDelta,Yes/No` | ✅ Yes |
@@ -295,7 +305,8 @@ Corrections and gaps found when checking this plan against the current source. R
 
 ### Phase 2
 - **2.1 Catalog:**
-  - Catalog values (A, I, J) include root fillets, but the current shape formulas ignore them. Store catalog sections with their catalog properties, for example as an override on the shape, so the analysis uses the published values.
+  - Catalog values (A, I, J) include root fillets, but the current shape formulas ignore them. Resolved by the property override: catalog rows with published A / I33 / I22 / J are stored with those values and the analysis uses them.
+  - Excel saves CSV with the locale list separator (`;` in many countries) and decimal comma; the importer must handle both. A `.sav` must not depend on a catalog being installed on the device.
   - Angles (L) are not supported yet. Unequal angles have rotated principal axes, but the solver assumes I33/I22 are principal axes, so they need extra work.
   - AISC data is in inches and must be converted. Lazy-load the JSON so the PWA stays small, and check the redistribution licence of each data source.
 - **2.2 DXF:**
