@@ -87,7 +87,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 *Target: Eliminate manual dimension entry, enable CAD imports, and optimize tablet input.*
 
-> **Status:** ? Phase 2 is complete: 2.1 (v1.2.0), 2.2 and 2.3 (v1.2.1).
+> **Status:** ✅ Phase 2 is complete: 2.1 (v1.2.0), 2.2 and 2.3 (v1.2.1).
 
 ### 2.1 Section Catalog Library, Editable in Excel (AISC, Eurocode, British, user/local)
 - **Problem:** Users must manually compute and type dimensions (depth, width, flange/web thickness) for standard profiles. Users also need their **own** catalogs, based on the profiles sold in their local market or country.
@@ -115,13 +115,13 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 ### 2.2 3D DXF Wireframe Importer & Exporter (`src/io/dxf.ts`)
 - **Problem:** Creating complex space frames, roof trusses, or multi-story buildings directly on a tablet canvas is time-consuming.
 - **Specification:**
-  - **Import (File ? Import DXF?):** Read ASCII DXF files. Extract `LINE`, `LWPOLYLINE`, 2D/3D `POLYLINE`, `3DFACE` and `POINT` entities (OCS / elevation handled; arcs are read as straight segments; blocks, meshes, text etc. are skipped and reported). Merge endpoints closer than a tolerance (default 1 mm, never below `COORD_TOL`) into `Joints`, create `Frames` and skip duplicates and zero-length segments.
+  - **Import (File → Import DXF…):** Read ASCII DXF files. Extract `LINE`, `LWPOLYLINE`, 2D/3D `POLYLINE`, `3DFACE` and `POINT` entities (OCS / elevation handled; arcs are read as straight segments; blocks, meshes, text etc. are skipped and reported). Merge endpoints closer than a tolerance (default 1 mm, never below `COORD_TOL`) into `Joints`, create `Frames` and skip duplicates and zero-length segments.
     - **Units:** `$INSUNITS` sets the default drawing unit; the user can override it (m, cm, mm, ft, in).
     - **Layers:** the user picks the layers to import. A layer named `section@material` (or just a section or material name) assigns them; other layers use the first section / material and are listed in a warning.
     - **Areas:** `3DFACE`s and closed polylines on layers starting with `AREA` / `SA3D_AREA` become Areas. Other closed polylines become frames.
     - **Mode:** *Add to model* or *Replace model* (replace clears geometry and loads). One import = one Undo step.
-  - **Export (File ? Export DXF?):** Write an R12 (AC1009) DXF in the current length unit: joints (`SA3D_JOINTS`), frames on `section@material` layers, areas (`SA3D_AREAS`) and, when results exist, the deformed shape (`SA3D_RESULT_DEFORMED`, current deformation scale) and force diagrams with value labels (`SA3D_RESULT_<P|V2|V3|T|M2|M3>`: the shown diagram, or all six). Opens in AutoCAD / Revit / Rhino / BricsCAD / LibreCAD.
-- **Status:** ? Done in v1.2.1 (tests: `tests/dxf.test.ts`).
+  - **Export (File → Export DXF…):** Write an R12 (AC1009) DXF in the current length unit: joints (`SA3D_JOINTS`), frames on `section@material` layers, areas (`SA3D_AREAS`) and, when results exist, the deformed shape (`SA3D_RESULT_DEFORMED`, current deformation scale) and force diagrams with value labels (`SA3D_RESULT_<P|V2|V3|T|M2|M3>`: the shown diagram, or all six). Opens in AutoCAD / Revit / Rhino / BricsCAD / LibreCAD.
+- **Status:** ✅ Done in v1.2.1 (tests: `tests/dxf.test.ts`).
 
 ---
 
@@ -135,7 +135,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
   - **Snap priority:** existing joint → midpoint / crossing → grid. Use the same pick radius as the joint snap (larger for touch).
   - **Feedback:** reuse `navigator.vibrate?.(15)` from `gestures.ts` when the snap locks. This only works on Android; iPad Safari has no Vibration API, so the marker is the main feedback.
 - **Files:** `src/input/tools.ts` (snap search), `src/model/model.ts` (split), `src/view/viewer.ts` (markers), new `tests/snap.test.ts`.
-- **Status:** ? Done in v1.2.1 (tests: `tests/snap.test.ts`). **Divide frames?** now keeps end releases too.
+- **Status:** ✅ Done in v1.2.1 (tests: `tests/snap.test.ts`). **Divide frames…** now keeps end releases too.
 - **`.sav` format:** no change.
 
 ---
@@ -287,8 +287,8 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 ## 🧪 Verification & Benchmark Strategy
 
 Every solver enhancement must pass automated tests in `tests/` and ETABS benchmark verifications:
-1. **Truss Verification (`tests/truss.test.ts`):** Compare pinned-end plane truss internal axial forces against method of joints / ETABS.
-2. **Member Release Verification:** Simple beam with central point load and moment releases at both ends confirms zero end moments and $wL^2/8$ span moment.
+1. **Truss Verification (`tests/releases.test.ts`):** Compare pinned-end plane truss internal axial forces against method of joints / ETABS, including a truss whose joint rotations are not restrained (auto-stabilised).
+2. **Member Release Verification (`tests/releases.test.ts`):** Beam between two **fixed** supports with M3 released at both ends under a **uniform** load $w$ must match a simply supported beam: zero end moments and $wL^2/8$ at midspan. (A central **point** load $P$ gives $PL/4$ instead.)
 3. **P-Delta Verification:** Column under gravity load with lateral tip load checked against Euler secondary magnification formula:
    $$\delta = \frac{\delta_0}{1 - P / P_{cr}}$$
 4. **ETABS Benchmark Models:** Maintain benchmark files in `ETABS Verif/` to ensure agreement within $< 0.1\%$ discrepancy.

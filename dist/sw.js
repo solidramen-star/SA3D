@@ -81,7 +81,7 @@ define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
     "revision": "402b66900e731ca748771b6fc5e7a068"
   }, {
     "url": "index.html",
-    "revision": "e4cbbaf26168153bfb636d462aacba7c"
+    "revision": "ec61bf3e635e3fc5b518962b0150763e"
   }, {
     "url": "icon.svg",
     "revision": "4989e7df9b2176e7f839197f65977406"
@@ -89,10 +89,10 @@ define(['./workbox-7e5eb42b'], (function (workbox) { 'use strict';
     "url": "assets/worker-BGMSV3E3.js",
     "revision": null
   }, {
-    "url": "assets/index-DCtOxvto.css",
+    "url": "assets/index-DsJ6Q_Ho.js",
     "revision": null
   }, {
-    "url": "assets/index-CqYkRSoP.js",
+    "url": "assets/index-DCtOxvto.css",
     "revision": null
   }, {
     "url": "icon.svg",

@@ -87,7 +87,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 *Target: Eliminate manual dimension entry, enable CAD imports, and optimize tablet input.*
 
-> **Status:** ? Phase 2 is complete: 2.1 (v1.2.0), 2.2 and 2.3 (v1.2.1).
+> **Status:** ✅ Phase 2 is complete: 2.1 (v1.2.0), 2.2 and 2.3 (v1.2.1).
 
 ### 2.1 Section Catalog Library, Editable in Excel (AISC, Eurocode, British, user/local)
 - **Problem:** Users must manually compute and type dimensions (depth, width, flange/web thickness) for standard profiles. Users also need their **own** catalogs, based on the profiles sold in their local market or country.
@@ -115,13 +115,13 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 ### 2.2 3D DXF Wireframe Importer & Exporter (`src/io/dxf.ts`)
 - **Problem:** Creating complex space frames, roof trusses, or multi-story buildings directly on a tablet canvas is time-consuming.
 - **Specification:**
-  - **Import (File ? Import DXF?):** Read ASCII DXF files. Extract `LINE`, `LWPOLYLINE`, 2D/3D `POLYLINE`, `3DFACE` and `POINT` entities (OCS / elevation handled; arcs are read as straight segments; blocks, meshes, text etc. are skipped and reported). Merge endpoints closer than a tolerance (default 1 mm, never below `COORD_TOL`) into `Joints`, create `Frames` and skip duplicates and zero-length segments.
+  - **Import (File → Import DXF…):** Read ASCII DXF files. Extract `LINE`, `LWPOLYLINE`, 2D/3D `POLYLINE`, `3DFACE` and `POINT` entities (OCS / elevation handled; arcs are read as straight segments; blocks, meshes, text etc. are skipped and reported). Merge endpoints closer than a tolerance (default 1 mm, never below `COORD_TOL`) into `Joints`, create `Frames` and skip duplicates and zero-length segments.
     - **Units:** `$INSUNITS` sets the default drawing unit; the user can override it (m, cm, mm, ft, in).
     - **Layers:** the user picks the layers to import. A layer named `section@material` (or just a section or material name) assigns them; other layers use the first section / material and are listed in a warning.
     - **Areas:** `3DFACE`s and closed polylines on layers starting with `AREA` / `SA3D_AREA` become Areas. Other closed polylines become frames.
     - **Mode:** *Add to model* or *Replace model* (replace clears geometry and loads). One import = one Undo step.
-  - **Export (File ? Export DXF?):** Write an R12 (AC1009) DXF in the current length unit: joints (`SA3D_JOINTS`), frames on `section@material` layers, areas (`SA3D_AREAS`) and, when results exist, the deformed shape (`SA3D_RESULT_DEFORMED`, current deformation scale) and force diagrams with value labels (`SA3D_RESULT_<P|V2|V3|T|M2|M3>`: the shown diagram, or all six). Opens in AutoCAD / Revit / Rhino / BricsCAD / LibreCAD.
-- **Status:** ? Done in v1.2.1 (tests: `tests/dxf.test.ts`).
+  - **Export (File → Export DXF…):** Write an R12 (AC1009) DXF in the current length unit: joints (`SA3D_JOINTS`), frames on `section@material` layers, areas (`SA3D_AREAS`) and, when results exist, the deformed shape (`SA3D_RESULT_DEFORMED`, current deformation scale) and force diagrams with value labels (`SA3D_RESULT_<P|V2|V3|T|M2|M3>`: the shown diagram, or all six). Opens in AutoCAD / Revit / Rhino / BricsCAD / LibreCAD.
+- **Status:** ✅ Done in v1.2.1 (tests: `tests/dxf.test.ts`).
 
 ---
 
@@ -135,7 +135,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
   - **Snap priority:** existing joint → midpoint / crossing → grid. Use the same pick radius as the joint snap (larger for touch).
   - **Feedback:** reuse `navigator.vibrate?.(15)` from `gestures.ts` when the snap locks. This only works on Android; iPad Safari has no Vibration API, so the marker is the main feedback.
 - **Files:** `src/input/tools.ts` (snap search), `src/model/model.ts` (split), `src/view/viewer.ts` (markers), new `tests/snap.test.ts`.
-- **Status:** ? Done in v1.2.1 (tests: `tests/snap.test.ts`). **Divide frames?** now keeps end releases too.
+- **Status:** ✅ Done in v1.2.1 (tests: `tests/snap.test.ts`). **Divide frames…** now keeps end releases too.
 - **`.sav` format:** no change.
 
 ---
@@ -316,12 +316,12 @@ Corrections and gaps found when checking this plan against the current source. R
   - Excel saves CSV with the locale list separator (`;` in many countries) and decimal comma; the importer must handle both. A `.sav` must not depend on a catalog being installed on the device.
   - Angles (L) are not supported yet. Unequal angles have rotated principal axes, but the solver assumes I33/I22 are principal axes, so they need extra work.
   - AISC data is in inches and must be converted. Lazy-load the JSON so the PWA stays small, and check the redistribution licence of each data source.
-- ? **Resolved in v1.2.1** ? all 2.2 notes below: `LINE` is read as 3D; `LWPOLYLINE`/`POLYLINE`/`3DFACE` are read (3DFACE ? Areas); `$INSUNITS` sets the default unit; the merge tolerance never goes below `COORD_TOL`.
+- ✅ **Resolved in v1.2.1** – all 2.2 notes below: `LINE` is read as 3D; `LWPOLYLINE`/`POLYLINE`/`3DFACE` are read (3DFACE → Areas); `$INSUNITS` sets the default unit; the merge tolerance never goes below `COORD_TOL`.
 - **2.2 DXF:**
   - There is no `3DLINE` entity in DXF; a `LINE` entity is already 3D.
   - Also read `LWPOLYLINE`/`POLYLINE`, and optionally `3DFACE` → Areas.
   - Respect `$INSUNITS` for units. Reuse `COORD_TOL` from `model/model.ts` when merging endpoints.
-- ? **Resolved in v1.2.1** ? all 2.3 notes below: `splitFrameAt` keeps releases on the outer ends and `divideFrame` now uses it; the 3D crossing test uses the segment-to-segment distance; a snap on an existing joint reuses it; haptics use `navigator.vibrate?.(15)`.
+- ✅ **Resolved in v1.2.1** – all 2.3 notes below: `splitFrameAt` keeps releases on the outer ends and `divideFrame` now uses it; the 3D crossing test uses the segment-to-segment distance; a snap on an existing joint reuses it; haptics use `navigator.vibrate?.(15)`.
 - **2.3 Snap Essentials:**
   - The existing `divideFrame` in `model/model.ts` does **not** copy `relI`/`relJ` to the new pieces, so dividing a released frame loses its releases. Fix this when adding `splitFrameAt` (outer ends keep the releases), and add a test.
   - Crossing snap works in 3D: two frames only "cross" if the shortest distance between them is ≤ `COORD_TOL` and the point lies inside both frames (not at an existing end joint).
@@ -362,8 +362,9 @@ Corrections and gaps found when checking this plan against the current source. R
 - `ETABS Verif/` currently holds `Test 1.xlsx` only. Add a `.sav` model per benchmark next to its ETABS result.
 
 ### Suggested branch order
-`feature/phase1-core-mechanics` (this branch): 1.1 releases → 1.2 springs (+ settlements). Phase 1 is complete; the former 1.3 snapping moved to 2.3 and Backlog B.1. Each item gets tests and README updates, then a merge to `main` and a tag (`v1.1`).
-Later phases follow the same pattern, one branch per phase: `feature/phase2-workflow-cad` (2.1 section catalog → 2.2 DXF → 2.3 snap essentials), `feature/phase3-analysis-reports`, `feature/phase4-code-checks`, `feature/phase5-ai-agent` (5.1 tools → 5.2 chat panel → 5.3 provider → 5.4 safeguards).
+`feature/phase1-core-mechanics`: 1.1 releases → 1.2 springs (+ settlements). ✅ Phase 1 is complete (v1.1.8); the former 1.3 snapping moved to 2.3 and Backlog B.1. Each item gets tests and README updates, then a merge to `main` and a tag (`v1.1`).
+✅ Phase 2 is complete (2.1 section catalog in v1.2.0 → 2.2 DXF and 2.3 snap essentials in v1.2.1). It was developed on `feature/phase1-core-mechanics` and released to `main`; no separate `feature/phase2-workflow-cad` branch was created.
+Next phases follow the same pattern, one branch per phase: `feature/phase3-analysis-reports` (3.1 P-Delta → 3.2 PDF report → 3.3 modal), `feature/phase4-code-checks`, `feature/phase5-ai-agent` (5.1 tools → 5.2 chat panel → 5.3 provider → 5.4 safeguards).
 Backlog items (B.1, B.2, …) have no fixed place in this order. Each one gets its own branch when it is pulled in, e.g. `feature/backlog-b1-advanced-snaps`.
 
 #### App versioning rule (applies to every update)

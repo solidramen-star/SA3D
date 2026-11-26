@@ -15,9 +15,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'Midpoint (triangle marker) and frame-crossing (X marker) snaps while drawing; placing a joint there splits the frame(s) so the new member is connected, in one undo step',
       'Short vibration when a snap locks (Android)',
-      'Divide frames? now keeps end releases on the outer ends and moves point loads to the right piece',
-      'File ? Import DXF?: lines, polylines, 3D faces and points from CAD; choose units, layers, merge tolerance and add/replace; section@material layers assign properties',
-      'File ? Export DXF?: model geometry plus deformed shape and force diagrams (with values) on separate layers, in the current length unit',
+      'Divide frames… now keeps end releases on the outer ends and moves point loads to the right piece',
+      'File → Import DXF…: lines, polylines, 3D faces and points from CAD; choose units, layers, merge tolerance and add/replace; section@material layers assign properties',
+      'File → Export DXF…: model geometry plus deformed shape and force diagrams (with values) on separate layers, in the current length unit',
     ],
   },
   {
