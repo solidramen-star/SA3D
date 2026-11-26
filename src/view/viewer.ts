@@ -133,6 +133,47 @@ function circleTexture(): THREE.Texture {
   return t;
 }
 
+/** Snap marker for frame midpoints. */
+function triangleTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.beginPath();
+  g.moveTo(32, 5);
+  g.lineTo(60, 56);
+  g.lineTo(4, 56);
+  g.closePath();
+  g.fillStyle = '#fff';
+  g.fill();
+  g.lineWidth = 5;
+  g.strokeStyle = 'rgba(0,0,0,0.55)';
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Snap marker for frame crossings. */
+function crossTexture(): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.lineCap = 'round';
+  for (const [w, s] of [[18, 'rgba(0,0,0,0.55)'], [10, '#fff']] as const) {
+    g.beginPath();
+    g.moveTo(10, 10);
+    g.lineTo(54, 54);
+    g.moveTo(54, 10);
+    g.lineTo(10, 54);
+    g.lineWidth = w;
+    g.strokeStyle = s;
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 function hollowCircleTexture(): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
@@ -249,6 +290,8 @@ export class Viewer {
   private overlayGroup = new THREE.Group();
   private jointTex = circleTexture();
   private hingeTex = hollowCircleTexture();
+  private midTex = triangleTexture();
+  private crossTex = crossTexture();
   private renderQueued = false;
   private animStart = 0;
   private deformed: { geo: LineSegmentsGeometry; base: Float32Array; delta: Float32Array; pts?: THREE.Points } | null = null;
@@ -1104,6 +1147,11 @@ export class Viewer {
     }
   }
 
+  /** Height (m) of the largest force-diagram ordinate on screen, including the user's force scale. */
+  diagramSize(): number {
+    return this.span * 0.12 * this.resultOpts.forceScale;
+  }
+
   private buildDiagram(r: Results, comp: keyof FrameResult): void {
     const d = this.data!;
     const jm = new Map(d.joints.map((j) => [j.id, j]));
@@ -1113,7 +1161,7 @@ export class Viewer {
       this.resultGroup.add(this.label(`${comp} = 0 everywhere`, this.target.clone(), 'result'));
       return;
     }
-    const scale = ((this.span * 0.12) / maxAbs) * this.resultOpts.forceScale;
+    const scale = this.diagramSize() / maxAbs;
     const qty = comp === 'P' || comp === 'V2' || comp === 'V3' ? 'F' : 'M';
     const pos: number[] = [];
     const col: number[] = [];
@@ -1200,7 +1248,8 @@ export class Viewer {
 
   // ---------------------------------------------------------------- overlay
   private overlayObjs: THREE.Object3D[] = [];
-  setOverlay(rubber: [THREE.Vector3, THREE.Vector3][] | null, snap: THREE.Vector3 | null): void {
+  /** Rubber-band lines and the snap marker (circle = joint/grid, triangle = frame midpoint, X = frame crossing). */
+  setOverlay(rubber: [THREE.Vector3, THREE.Vector3][] | null, snap: THREE.Vector3 | null, kind: 'joint' | 'mid' | 'cross' | 'grid' = 'joint'): void {
     for (const o of this.overlayObjs) this.overlayGroup.remove(o);
     this.clearGroup(this.overlayGroup);
     this.overlayObjs = [];
@@ -1215,7 +1264,15 @@ export class Viewer {
       g.setAttribute('position', new THREE.Float32BufferAttribute(snap.toArray(), 3));
       const p = new THREE.Points(
         g,
-        new THREE.PointsMaterial({ size: 20, sizeAttenuation: false, map: this.jointTex, color: this.theme.sel, transparent: true, opacity: 0.6, depthTest: false }),
+        new THREE.PointsMaterial({
+          size: kind === 'mid' || kind === 'cross' ? 24 : 20,
+          sizeAttenuation: false,
+          map: kind === 'mid' ? this.midTex : kind === 'cross' ? this.crossTex : this.jointTex,
+          color: this.theme.sel,
+          transparent: true,
+          opacity: kind === 'mid' || kind === 'cross' ? 0.9 : 0.6,
+          depthTest: false,
+        }),
       );
       p.renderOrder = 20;
       this.overlayGroup.add(p);

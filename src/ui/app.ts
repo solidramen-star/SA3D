@@ -8,7 +8,8 @@ import type { ResultSet, Results } from '../solver/analyze';
 import { runAnalysis } from '../solver/client';
 import { readSav, writeSav, SavError, type SavInfo } from '../io/savFormat';
 import { autosave, clearAutosave, loadAutosave, openText, saveText, type FsFileHandle } from '../io/fileAccess';
-import { alertDialog, closeMenus, confirmDialog, dialogOpen, h, isMenuOpenFor, showMenu, toast, type MenuItem } from './dom';
+import { alertDialog, checkField, closeMenus, confirmDialog, dialogOpen, h, isMenuOpenFor, numField, openDialog, selectField, showMenu, toast, type MenuItem } from './dom';
+import { dxfUnitScale, importDxf, isAreaLayer, parseDxf, writeDxf, type DxfDoc, type ForceComp } from '../io/dxf';
 import * as D from './dialogs';
 import { renderInspector } from './inspector';
 import { UNIT_SYSTEMS, fmtU, onUnitsChange, setUnits, uLabel, units, type UnitSystemId } from '../model/units';
@@ -192,11 +193,11 @@ export class App {
         this.tools.multi = !this.tools.multi;
         this.onToolChanged();
       }),
-      tb('done', 'Done', 'Finish frame chain / close area (Enter)', () => this.tools.finishChain(true)),
       h('div', { class: 'tb-sep' }),
       tb('joint', 'Joint', 'Draw joints (J)', () => this.tools.setTool('joint')),
       tb('frame', 'Frame', 'Draw frames (L)', () => this.tools.setTool('frame')),
       tb('area', 'Area', 'Draw areas (A)', () => this.tools.setTool('area')),
+      tb('done', 'Done', 'Finish frame chain / close area (Enter)', () => this.tools.finishChain(true)),
       h('div', { class: 'tb-sep' }),
       tb('fit', 'Fit', 'Zoom to fit (F)', () => this.viewer.fit()),
       tb('undo', 'Undo', 'Undo (Ctrl+Z)', () => this.undo()),
@@ -656,6 +657,111 @@ export class App {
     }
   }
 
+  async importDxf(): Promise<void> {
+    this.tools.finishChain(true);
+    let doc: DxfDoc;
+    let name: string;
+    try {
+      const f = await openText('dxf');
+      if (!f) return;
+      name = f.name;
+      doc = parseDxf(f.text);
+    } catch (e) {
+      void alertDialog('Cannot read DXF', e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const skipped = Object.entries(doc.skipped).map(([t, n]) => `${t} ×${n}`).join(', ');
+    if (!doc.entities.length) {
+      void alertDialog('Nothing to import', `${name} has no LINE, POLYLINE, LWPOLYLINE, 3DFACE or POINT entities.` + (skipped ? ` Skipped: ${skipped}.` : ''));
+      return;
+    }
+
+    const lengths: [string, string][] = [
+      ['1', 'm'],
+      ['0.001', 'mm'],
+      ['0.01', 'cm'],
+      ['0.3048', 'ft'],
+      ['0.0254', 'in'],
+    ];
+    const fileScale = dxfUnitScale(doc.insUnits);
+    if (fileScale !== null && !lengths.some(([v]) => Number(v) === fileScale)) lengths.push([String(fileScale), `file units (${fileScale} m)`]);
+    const def = fileScale ?? units().kL;
+    const unitF = selectField('Drawing units', lengths, lengths.find(([v]) => Math.abs(Number(v) - def) < def * 1e-9)?.[0] ?? '1');
+    const modeF = selectField<'add' | 'replace'>(
+      'Mode',
+      [
+        ['add', 'Add to current model'],
+        ['replace', 'Replace geometry & loads'],
+      ],
+      this.model.data.joints.length ? 'add' : 'replace',
+    );
+    const tolF = numField('Merge tolerance', 0.001, { q: 'L', positive: true });
+    const layerFs = Object.entries(doc.layers)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([layer, n]) => ({ layer, f: checkField(`${layer} (${n})${isAreaLayer(layer) ? ' – areas' : ''}`, !/^SA3D_RESULT/i.test(layer)) }));
+    const info = h(
+      'p',
+      { class: 'hint' },
+      `${doc.entities.length} entities on ${layerFs.length} layer(s). File units: ${fileScale === null ? 'not set' : fileScale + ' m'}.` +
+        (doc.bulges ? ` ${doc.bulges} arc segment(s) will be straight.` : '') +
+        (skipped ? ` Skipped: ${skipped}.` : '') +
+        ' Layer names like "IPE300@S275" assign the matching section and material.',
+    );
+    openDialog({
+      title: `Import DXF – ${name}`,
+      body: h('div', null, info, unitF.row, modeF.row, tolF.row, h('h3', null, 'Layers'), ...layerFs.map((l) => l.f.row)),
+      buttons: [
+        { label: 'Cancel' },
+        {
+          label: 'Import',
+          kind: 'primary',
+          action: () => {
+            const tol = tolF.get();
+            if (!Number.isFinite(tol)) return false;
+            const layers = new Set(layerFs.filter((l) => l.f.get()).map((l) => l.layer));
+            if (!layers.size) {
+              toast('Select at least one layer', 'warn');
+              return false;
+            }
+            const replace = modeF.get() === 'replace';
+            if (replace) this.selection.clear();
+            const rep = importDxf(this.model, doc, { scale: Number(unitF.get()), layers, replace, mergeTol: tol });
+            this.viewer.fit();
+            const parts = [`${rep.joints} joints`, `${rep.frames} frames`, `${rep.areas} areas`];
+            if (rep.duplicates) parts.push(`${rep.duplicates} duplicates skipped`);
+            if (rep.zeroLength) parts.push(`${rep.zeroLength} zero-length skipped`);
+            toast(`Imported ${parts.join(', ')}`, 'ok', 5000);
+            if (rep.unmatchedLayers.length && rep.frames)
+              toast(`No section/material match for layer(s): ${rep.unmatchedLayers.join(', ')} – default section used`, 'warn', 6000);
+          },
+        },
+      ],
+    });
+  }
+
+  async exportDxf(): Promise<void> {
+    this.tools.finishChain(true);
+    const r = this.results;
+    const view = this.viewer.resultOpts.view;
+    const comps = FORCE_VIEWS as readonly string[];
+    const forceComps = (r ? (comps.includes(view) ? [view] : comps) : []) as ForceComp[];
+    try {
+      const text = writeDxf(this.model.data, {
+        kL: units().kL,
+        results: r,
+        deformScale: r ? this.viewer.autoDeformScale * 10 ** this.deformRel : undefined,
+        forceComps,
+        diagramSize: this.viewer.diagramSize(),
+        label: (v, q) => fmtU(v, q, 3),
+      });
+      const base = this.fileName.replace(/\.[^.]*$/, '') || 'model';
+      const res = await saveText(text, base + '.dxf', null, 'dxf');
+      if (res) toast(`Exported ${res.name} (${units().length})` + (r ? ` with ${this.resultName} results` : ''), 'ok');
+    } catch (e) {
+      void alertDialog('DXF export failed', e instanceof Error ? e.message : String(e));
+    }
+  }
+
   private async offerRecovery(): Promise<void> {
     const a = loadAutosave();
     if (!a) return;
@@ -756,6 +862,9 @@ export class App {
       { label: 'Save As…', shortcut: 'Ctrl+Shift+S', action: () => void this.save(true) },
       { separator: true },
       this.toggle('Include results in .sav', () => this.includeResults, (v) => (this.includeResults = v)),
+      { separator: true },
+      { label: 'Import DXF…', action: () => void this.importDxf() },
+      { label: 'Export DXF…', action: () => void this.exportDxf() },
       { separator: true },
       { label: 'Load example model', action: () => void this.loadExample() },
     ];
@@ -914,7 +1023,7 @@ export class App {
               h(
                 'p',
                 { class: 'msg' },
-                `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nLight Weight 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases and                 shear deformation).\nFor more information, contact me at: `,
+                `StructApp 3D v${APP_VERSION} (${APP_UPDATE_DATE})\nLight Weight 3D frame structural analysis (linear static, 12-DOF space frame elements with member end releases and shear deformation).\nFor more information, contact me at: `,
                                 h('a', { href: 'mailto:rama.ditasuwita@shimz.biz' }, 'rama.ditasuwita@shimz.biz'),
                               ),
               h('h3', null, 'Version history'),

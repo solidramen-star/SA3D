@@ -11,7 +11,8 @@ import {
 
 export type Listener = (reason: string) => void;
 
-const COORD_TOL = 1e-6;
+/** Two points closer than this (m, per axis) are the same joint. */
+export const COORD_TOL = 1e-6;
 
 /** Model store with snapshot-based undo/redo. All mutations go through `commit`. */
 export class Model {
@@ -262,24 +263,48 @@ export class Model {
     return created;
   }
 
-  /** Split a frame at its midpoint/relative distance; returns new joint id. */
+  /** Divide a frame into `parts` equal pieces. */
   divideFrame(id: number, parts: number): void {
+    if (parts < 2) return;
+    this.splitFrameAt(
+      id,
+      Array.from({ length: parts - 1 }, (_, k) => (k + 1) / parts),
+    );
+  }
+
+  /**
+   * Split a frame at relative distances `ts` from end I (0 < t < 1) as one undo step. Pieces keep material, section
+   * and beta; the original end releases stay on the outer ends (inner ends are continuous). Uniform loads go to every
+   * piece, point loads to the piece that contains them. Returns the joints at the cuts and the new frames (I→J order),
+   * or null when nothing was split.
+   */
+  splitFrameAt(id: number, ts: number[]): { joints: number[]; frames: number[] } | null {
     const f = this.frame(id);
-    if (!f || parts < 2) return;
-    this.commit('divide frame', (d) => {
-      const a = this.joint(f.i)!;
-      const b = this.joint(f.j)!;
+    if (!f) return null;
+    const a = this.joint(f.i);
+    const b = this.joint(f.j);
+    if (!a || !b) return null;
+    const cuts = [...new Set(ts.filter((t) => t > 0 && t < 1))].sort((p, q) => p - q);
+    if (!cuts.length) return null;
+    return this.commit('split frame', (d) => {
       const ids = [f.i];
-      for (let k = 1; k < parts; k++) {
-        const t = k / parts;
-        ids.push(this.addJoint(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t));
+      const bounds = [0];
+      for (const t of cuts) {
+        const jid = this.addJoint(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
+        // a cut that rounds onto an end joint (or the previous cut) adds nothing
+        if (jid === ids[ids.length - 1] || jid === f.j) continue;
+        ids.push(jid);
+        bounds.push(t);
       }
+      if (ids.length === 1) return null;
       ids.push(f.j);
+      bounds.push(1);
       const uniform = d.frameUniformLoads.filter((l) => l.frame === id);
+      const points = d.framePointLoads.filter((l) => l.frame === id);
       d.frames = d.frames.filter((x) => x.id !== id);
       d.frameUniformLoads = d.frameUniformLoads.filter((l) => l.frame !== id);
-      const points = d.framePointLoads.filter((l) => l.frame === id);
       d.framePointLoads = d.framePointLoads.filter((l) => l.frame !== id);
+      const parts = ids.length - 1;
       const newIds: number[] = [];
       for (let k = 0; k < parts; k++) {
         const nid = this.addFrame(ids[k], ids[k + 1])!;
@@ -287,14 +312,18 @@ export class Model {
         nf.material = f.material;
         nf.section = f.section;
         nf.beta = f.beta;
+        if (k === 0 && f.relI) nf.relI = [...f.relI] as typeof f.relI;
+        if (k === parts - 1 && f.relJ) nf.relJ = [...f.relJ] as typeof f.relJ;
         newIds.push(nid);
         for (const u of uniform) d.frameUniformLoads.push({ ...u, frame: nid });
       }
       for (const p of points) {
-        const pos = p.rd * parts;
-        const k = Math.min(Math.floor(pos), parts - 1);
-        d.framePointLoads.push({ ...p, frame: newIds[k], rd: pos - k });
+        let k = 0;
+        while (k < parts - 1 && p.rd > bounds[k + 1]) k++;
+        const rd = (p.rd - bounds[k]) / (bounds[k + 1] - bounds[k]);
+        d.framePointLoads.push({ ...p, frame: newIds[k], rd: Math.min(1, Math.max(0, rd)) });
       }
+      return { joints: ids.slice(1, -1), frames: newIds };
     });
   }
 }

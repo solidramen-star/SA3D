@@ -2,6 +2,16 @@ import * as THREE from 'three';
 import type { App } from '../ui/app';
 import { parseKey, selKey, type SelKey } from '../view/viewer';
 import { toast } from '../ui/dom';
+import { frameCrossing } from '../model/snap';
+import type { Joint } from '../model/types';
+
+function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+  return Math.hypot(px - ax - dx * t, py - ay - dy * t);
+}
 
 export type ToolName = 'select' | 'joint' | 'frame' | 'area' | 'box';
 
@@ -13,9 +23,14 @@ export const TOOL_HINT: Record<ToolName, string> = {
   box: 'Drag a box: left→right selects objects fully inside, right→left selects anything touched.',
 };
 
+export type SnapKind = 'joint' | 'mid' | 'cross' | 'grid';
+
 interface Snap {
   pos: THREE.Vector3;
   joint: number | null;
+  kind: SnapKind;
+  /** Frames to split where the new joint is placed (midpoint / crossing snaps). */
+  split?: { frame: number; t: number }[];
 }
 
 export class ToolController {
@@ -58,9 +73,11 @@ export class ToolController {
       const dist = Math.hypot(s.x - x, s.y - y);
       if (dist < bestD) {
         bestD = dist;
-        best = { pos: new THREE.Vector3(j.x, j.y, j.z), joint: j.id };
+        best = { pos: new THREE.Vector3(j.x, j.y, j.z), joint: j.id, kind: 'joint' };
       }
     }
+    if (best) return best;
+    best = this.frameSnap(x, y, this.tol(e));
     if (best) return best;
     const p = v.workPlanePoint(x, y);
     if (!p) return null;
@@ -71,11 +88,77 @@ export class ToolController {
     else p.set(elevation, r(p.y), r(p.z));
     const clean = (val: number) => Math.round(val * 1e9) / 1e9;
     p.set(clean(p.x), clean(p.y), clean(p.z));
-    return { pos: p, joint: null };
+    return { pos: p, joint: null, kind: 'grid' };
   }
 
+  /** Nearest frame midpoint or frame crossing within `tol` px of the pointer (crossing wins a tie). */
+  private frameSnap(x: number, y: number, tol: number): Snap | null {
+    const v = this.app.viewer;
+    const m = this.app.model;
+    const jm = m.jointMap();
+    const scr = (p: { x: number; y: number; z: number }) => v.toScreen(new THREE.Vector3(p.x, p.y, p.z));
+    let best: Snap | null = null;
+    let bestD = tol;
+    // only frames passing near the pointer can own a midpoint or crossing under it
+    const near: { id: number; a: Joint; b: Joint }[] = [];
+    for (const f of m.data.frames) {
+      const a = jm.get(f.i);
+      const b = jm.get(f.j);
+      if (!a || !b) continue;
+      const sa = scr(a);
+      const sb = scr(b);
+      if (sa.behind && sb.behind) continue;
+      if (segDist(x, y, sa.x, sa.y, sb.x, sb.y) > tol) continue;
+      near.push({ id: f.id, a, b });
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+      const sm = scr(mid);
+      const dist = Math.hypot(sm.x - x, sm.y - y);
+      if (!sm.behind && dist < bestD) {
+        bestD = dist;
+        best = { pos: new THREE.Vector3(mid.x, mid.y, mid.z), joint: null, kind: 'mid', split: [{ frame: f.id, t: 0.5 }] };
+      }
+    }
+    for (let p = 0; p < near.length; p++)
+      for (let q = p + 1; q < near.length; q++) {
+        const A = near[p];
+        const B = near[q];
+        const c = frameCrossing(A.a, A.b, B.a, B.b);
+        if (!c) continue;
+        const sc = scr(c);
+        const dist = Math.hypot(sc.x - x, sc.y - y);
+        if (!sc.behind && dist <= bestD) {
+          bestD = dist;
+          best = {
+            pos: new THREE.Vector3(c.x, c.y, c.z),
+            joint: null,
+            kind: 'cross',
+            split: [
+              { frame: A.id, t: c.ta },
+              { frame: B.id, t: c.tb },
+            ],
+          };
+        }
+      }
+    if (best) {
+      // the snap point may already hold a joint (e.g. a loose joint at the midpoint): reuse it, but still split
+      const pos = best.pos;
+      best.joint = m.findJointAt(pos.x, pos.y, pos.z)?.id ?? null;
+    }
+    return best;
+  }
+
+  /** Joint for a snap; midpoint/crossing snaps also split the frame(s) there, all in one undo step. */
   private jointAt(s: Snap): number {
-    return s.joint ?? this.app.model.addJoint(s.pos.x, s.pos.y, s.pos.z);
+    const m = this.app.model;
+    if (!s.split?.length) return s.joint ?? m.addJoint(s.pos.x, s.pos.y, s.pos.z);
+    return m.commit(s.kind === 'cross' ? 'split frames at crossing' : 'split frame at midpoint', () => {
+      const id = m.addJoint(s.pos.x, s.pos.y, s.pos.z);
+      for (const sp of s.split!) {
+        const f = m.frame(sp.frame);
+        if (f && f.i !== id && f.j !== id) m.splitFrameAt(sp.frame, [sp.t]);
+      }
+      return id;
+    });
   }
 
   // ---------------------------------------------------------------- events
@@ -129,7 +212,11 @@ export class ToolController {
 
   hover(x: number, y: number, e: PointerEvent): void {
     if (this.tool === 'joint' || this.tool === 'frame' || this.tool === 'area') {
+      const prev = this.hoverSnap;
       this.hoverSnap = this.snap(x, y, e);
+      const s = this.hoverSnap;
+      // short haptic tick when the cursor locks onto a new joint/midpoint/crossing (touch devices that support it)
+      if (s && s.kind !== 'grid' && (!prev || prev.kind !== s.kind || !prev.pos.equals(s.pos))) navigator.vibrate?.(15);
       this.updateOverlay();
       this.app.setCoordReadout(this.hoverSnap?.pos ?? null);
     }
@@ -285,7 +372,7 @@ export class ToolController {
     }
     let marker: THREE.Vector3 | null = null;
     if (this.tool === 'joint' || this.tool === 'frame' || this.tool === 'area') marker = h ?? (pts.length ? pts[pts.length - 1] : null);
-    v.setOverlay(rubber, marker);
+    v.setOverlay(rubber, marker, h ? this.hoverSnap!.kind : 'joint');
   }
 
   statusText(): string {

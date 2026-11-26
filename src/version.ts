@@ -1,5 +1,5 @@
-export const APP_VERSION = '1.2.0';
-export const APP_UPDATE_DATE = '2026-11-24';
+export const APP_VERSION = '1.2.1';
+export const APP_UPDATE_DATE = '2026-11-26';
 
 export interface ChangelogEntry {
   version: string;
@@ -9,6 +9,17 @@ export interface ChangelogEntry {
 
 /** Newest first. Shown in Help ▸ About. */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.2.1',
+    date: '2026-11-26',
+    changes: [
+      'Midpoint (triangle marker) and frame-crossing (X marker) snaps while drawing; placing a joint there splits the frame(s) so the new member is connected, in one undo step',
+      'Short vibration when a snap locks (Android)',
+      'Divide frames? now keeps end releases on the outer ends and moves point loads to the right piece',
+      'File ? Import DXF?: lines, polylines, 3D faces and points from CAD; choose units, layers, merge tolerance and add/replace; section@material layers assign properties',
+      'File ? Export DXF?: model geometry plus deformed shape and force diagrams (with values) on separate layers, in the current length unit',
+    ],
+  },
   {
     version: '1.2.0',
     date: '2026-11-24',

@@ -20,6 +20,8 @@ Open the printed URL in Chrome, Edge, Safari (iPad) or Chrome (Android). For a q
 
 1. **Define** → Materials, Frame sections, Support types, Grid & work plane.
 2. **Draw** joints (tap the grid), frames (tap joint to joint and keep tapping to chain; Done/Esc ends the chain) and areas (tap 3 or more corners, then Done).
+   - **Snaps** (in this order): existing joint (circle) ? frame midpoint (triangle) or the point where two frames cross (X) ? grid. Placing a joint on a midpoint or crossing splits the frame(s) there, so the new member is really connected; one Undo reverts it all. On Android the device vibrates briefly when a snap locks.
+   - **Divide frames?** (context menu) splits a frame into equal pieces; the pieces keep the section, material, ? and the end releases on the outer ends, and loads follow them.
 3. **Select** objects by tapping them (the Properties panel shows their data). Use the **Box** tool to drag a selection rectangle, or the **Multi** tool to toggle items one at a time.
 4. **Assign** a material, section, β angle, supports, joint springs or area distribution to the selection.
    - **Assign → Joint springs…** adds elastic supports per joint: translational Kx, Ky, Kz (force/length) and rotational Krx, Kry, Krz (moment/rad) along the global axes. A spring on a DOF that is also restrained is ignored (the analysis warns). Springs are drawn as coils (translations) and spirals (rotations); their forces (−k·u) are reported as reactions.
@@ -73,6 +75,17 @@ You can edit a file in Excel and reopen it, provided you keep the table names, h
 
 A .sav file is written in the units chosen when you save. The `Units` cell in the `PROGRAM` table (for example `N, mm, C`) and the column headers (for example `X (mm)`) show which units. When you open a file, its values are converted and the display switches to the file's units.
 
+## DXF (CAD) import and export
+
+**File ? Import DXF?** reads an ASCII DXF drawing (AutoCAD, Revit, Rhino, BricsCAD, LibreCAD?):
+- `LINE`, `LWPOLYLINE` and `POLYLINE` segments become frames; `POINT`s become joints; `3DFACE`s and closed polylines on layers whose name starts with `AREA` (or `SA3D_AREA`) become areas. Arcs are read as straight segments; blocks, circles, text and meshes are skipped (the report lists them). Binary DXF is not supported (save as ASCII DXF).
+- **Drawing units:** the default comes from the file's `$INSUNITS`; choose m, cm, mm, ft or in if it is missing or wrong.
+- **Merge tolerance:** endpoints closer than this become one joint (default 1 mm). Duplicate and zero-length segments are skipped.
+- **Layers:** tick the layers to import. A layer named `section@material` (for example `IWF300@STEEL`), or just a section or material name, assigns them; other layers get the first section and material and are listed in a warning.
+- **Add to model** or **Replace model** (replace clears geometry and loads). The import is one Undo step.
+
+**File ? Export DXF?** writes an R12 DXF in the current length unit: joints (`SA3D_JOINTS`), frames on `section@material` layers, areas (`SA3D_AREAS`) and, after an analysis, the deformed shape at the current scale (`SA3D_RESULT_DEFORMED`) and force diagrams with values (`SA3D_RESULT_M3` etc. ? the diagram on screen, or all six when none is shown). Result layers are unticked by default when the file is imported again.
+
 ## Conventions
 
 - **Units:** use the dropdown at the bottom right of the status bar to choose kN, m · N, mm · ton, m · kg, mm (metric; ton and kg are tonne-force and kilogram-force) or kip, ft · kip, in · lb, in (imperial). All input fields, tables, labels and results switch to the chosen units straight away. Your choice is remembered on the device. Internally the model is stored and solved in kN and m. Rotations are always in rad and β in degrees. Rotational springs use moment/rad (for example kN·m/rad). **Global Z is up**. GRAV loads act in −Z, and a positive value means downward.
@@ -109,7 +122,7 @@ A .sav file is written in the units chosen when you save. The `Units` cell in th
 ```
 src/model   data types, section properties, model with undo/redo
 src/solver  frame element, load processing, skyline solver, web-worker analysis
-src/io      .sav CSV reader/writer, file open/save helpers
+src/io      .sav CSV reader/writer, DXF import/export, file open/save helpers
 src/view    Three.js viewer (rendering, picking, result diagrams)
 src/input   touch/mouse gestures and drawing/selection tools
 src/ui      app shell, menus, dialogs, properties inspector, styles

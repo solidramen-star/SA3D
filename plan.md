@@ -23,7 +23,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
                             • Snap Essentials             • Dynamic Modal Frequencies      • Auto Load Combinations • Explain & Check Results
 ```
 
-**Backlog (unscheduled):** advanced snapping (polar tracking, perpendicular snap, haptics) · pen/stylus mode · radial quick menu. See the **Backlog** section after Phase 5.
+**Backlog (unscheduled):** advanced snapping (polar tracking, perpendicular snap, area-edge snap) · pen/stylus mode · radial quick menu. See the **Backlog** section after Phase 5.
 
 ---
 
@@ -87,6 +87,8 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 
 *Target: Eliminate manual dimension entry, enable CAD imports, and optimize tablet input.*
 
+> **Status:** ? Phase 2 is complete: 2.1 (v1.2.0), 2.2 and 2.3 (v1.2.1).
+
 ### 2.1 Section Catalog Library, Editable in Excel (AISC, Eurocode, British, user/local)
 - **Problem:** Users must manually compute and type dimensions (depth, width, flange/web thickness) for standard profiles. Users also need their **own** catalogs, based on the profiles sold in their local market or country.
 - **Specification:**
@@ -113,8 +115,13 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
 ### 2.2 3D DXF Wireframe Importer & Exporter (`src/io/dxf.ts`)
 - **Problem:** Creating complex space frames, roof trusses, or multi-story buildings directly on a tablet canvas is time-consuming.
 - **Specification:**
-  - **Import:** Read ASCII DXF files. Extract `LINE` and `3DLINE` entities, cluster endpoints within `COORD_TOL` into `Joints`, create `Frames`, and map layers to sections or materials.
-  - **Export:** Write model geometry, deformed shapes, and internal force wireframes back to 3D DXF layers for presentation in AutoCAD/Revit/Rhino.
+  - **Import (File ? Import DXF?):** Read ASCII DXF files. Extract `LINE`, `LWPOLYLINE`, 2D/3D `POLYLINE`, `3DFACE` and `POINT` entities (OCS / elevation handled; arcs are read as straight segments; blocks, meshes, text etc. are skipped and reported). Merge endpoints closer than a tolerance (default 1 mm, never below `COORD_TOL`) into `Joints`, create `Frames` and skip duplicates and zero-length segments.
+    - **Units:** `$INSUNITS` sets the default drawing unit; the user can override it (m, cm, mm, ft, in).
+    - **Layers:** the user picks the layers to import. A layer named `section@material` (or just a section or material name) assigns them; other layers use the first section / material and are listed in a warning.
+    - **Areas:** `3DFACE`s and closed polylines on layers starting with `AREA` / `SA3D_AREA` become Areas. Other closed polylines become frames.
+    - **Mode:** *Add to model* or *Replace model* (replace clears geometry and loads). One import = one Undo step.
+  - **Export (File ? Export DXF?):** Write an R12 (AC1009) DXF in the current length unit: joints (`SA3D_JOINTS`), frames on `section@material` layers, areas (`SA3D_AREAS`) and, when results exist, the deformed shape (`SA3D_RESULT_DEFORMED`, current deformation scale) and force diagrams with value labels (`SA3D_RESULT_<P|V2|V3|T|M2|M3>`: the shown diagram, or all six). Opens in AutoCAD / Revit / Rhino / BricsCAD / LibreCAD.
+- **Status:** ? Done in v1.2.1 (tests: `tests/dxf.test.ts`).
 
 ---
 
@@ -128,6 +135,7 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
   - **Snap priority:** existing joint → midpoint / crossing → grid. Use the same pick radius as the joint snap (larger for touch).
   - **Feedback:** reuse `navigator.vibrate?.(15)` from `gestures.ts` when the snap locks. This only works on Android; iPad Safari has no Vibration API, so the marker is the main feedback.
 - **Files:** `src/input/tools.ts` (snap search), `src/model/model.ts` (split), `src/view/viewer.ts` (markers), new `tests/snap.test.ts`.
+- **Status:** ? Done in v1.2.1 (tests: `tests/snap.test.ts`). **Divide frames?** now keeps end releases too.
 - **`.sav` format:** no change.
 
 ---
@@ -251,7 +259,6 @@ Phase 1: Core Mechanics ──► Phase 2: Workflow & CAD ──► Phase 3: Non
   - **Perpendicular snap:** snap to the nearest orthogonal projection onto an existing member line.
   - **Polar angle tracking:** snap to configurable angle steps ($0^\circ, 30^\circ, 45^\circ, 90^\circ$) from the active draw origin, with dashed guide rays, inside the current work plane.
   - **Area-edge snap:** snap to points on area edges.
-  - **Haptic feedback:** short vibration when a snap locks (Android only).
   - **Alternative worth considering first:** typed input of length + angle (or relative coordinates) from the last joint, which is more precise than dragging along a guide ray on a touch screen.
 
 ### B.2 Pen / Stylus Mode & Radial Quick Menu (from former item 2.3)

@@ -21,11 +21,12 @@ type W = Window & {
   showOpenFilePicker?: (o: PickerOpts) => Promise<FsFileHandle[]>;
 };
 
-export type FileKind = 'sav' | 'csv';
+export type FileKind = 'sav' | 'csv' | 'dxf';
 
 const FILE_TYPES: Record<FileKind, PickerOpts['types']> = {
   sav: [{ description: 'StructApp 3D model', accept: { 'text/csv': ['.sav'] } }],
   csv: [{ description: 'CSV table (Excel)', accept: { 'text/csv': ['.csv'] } }],
+  dxf: [{ description: 'DXF drawing', accept: { 'application/dxf': ['.dxf'] } }],
 };
 
 export const hasFsAccess = () => typeof (window as W).showSaveFilePicker === 'function';
@@ -38,7 +39,7 @@ export interface SaveResult {
 }
 
 function ensureExt(name: string, kind: FileKind = 'sav'): string {
-  name = name.trim() || (kind === 'sav' ? 'model' : 'table');
+  name = name.trim() || (kind === 'csv' ? 'table' : 'model');
   const ext = '.' + kind;
   return name.toLowerCase().endsWith(ext) ? name : name.replace(/\.[^.]*$/, '') + ext;
 }
@@ -60,7 +61,7 @@ export async function saveText(text: string, suggestedName: string, handle: FsFi
   }
   const name = ensureExt(suggestedName, kind);
   // BOM-less UTF-8 keeps Excel happy for ASCII content; names with accents still open fine in Excel 365.
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob([text], { type: kind === 'dxf' ? 'application/dxf' : 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -91,7 +92,7 @@ export async function openText(kind: FileKind = 'sav'): Promise<{ name: string; 
     const input = document.createElement('input');
     input.type = 'file';
     // iOS greys out unknown extensions when an accept filter is set, so leave it open there.
-    if (!isIOS()) input.accept = '.sav,.csv,text/csv,text/plain';
+    if (!isIOS()) input.accept = kind === 'dxf' ? '.dxf,application/dxf,image/vnd.dxf' : '.sav,.csv,text/csv,text/plain';
     input.style.display = 'none';
     document.body.appendChild(input);
     let done = false;
