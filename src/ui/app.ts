@@ -1,7 +1,7 @@
 import type { Vector3 } from 'three';
 import { Model } from '../model/model';
 import { DEAD, defaultModel, FIXED, LIVE, type ModelData, type Restraint, type WorkPlane } from '../model/types';
-import { DARK, FORCE_VIEWS, LIGHT, Viewer, fmt, parseKey, selKey, type DisplayOptions, type ResultView, type SelKey } from '../view/viewer';
+import { DARK, FORCE_VIEWS, LIGHT, Viewer, parseKey, selKey, type DisplayOptions, type ResultView, type SelKey } from '../view/viewer';
 import { Gestures } from '../input/gestures';
 import { TOOL_HINT, ToolController, type ToolName } from '../input/tools';
 import type { ResultSet, Results } from '../solver/analyze';
@@ -12,7 +12,7 @@ import { alertDialog, checkField, closeMenus, confirmDialog, dialogOpen, h, isMe
 import { dxfUnitScale, importDxf, isAreaLayer, parseDxf, writeDxf, type DxfDoc, type ForceComp } from '../io/dxf';
 import * as D from './dialogs';
 import { renderInspector } from './inspector';
-import { UNIT_SYSTEMS, fmtU, onUnitsChange, setUnits, uLabel, units, type UnitSystemId } from '../model/units';
+import { UNIT_SYSTEMS, fmt, fmtU, onUnitsChange, setUnits, uLabel, units, type UnitSystemId } from '../model/units';
 import { APP_VERSION, APP_UPDATE_DATE, CHANGELOG } from '../version';
 
 type SelectMode = 'replace' | 'add' | 'toggle';
@@ -39,6 +39,7 @@ const ICON: Record<string, string> = {
   area: '<path d="M4 18l4-12h12l-4 12z" fill="currentColor" fill-opacity=".25"/>',
   box: '<rect x="4" y="5" width="16" height="14" rx="1" stroke-dasharray="3 2"/>',
   multi: '<rect x="3" y="7" width="11" height="11" rx="2"/><path d="M10 4h8a2 2 0 0 1 2 2v8"/>',
+  clear: '<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2"/><path d="M9 9l6 6M15 9l-6 6"/>',
   done: '<path d="M5 12.5l4.5 4.5L19 7"/>',
   fit: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
   undo: '<path d="M9 7L4 12l5 5"/><path d="M4 12h10a6 6 0 0 1 0 12"/>',
@@ -193,6 +194,7 @@ export class App {
         this.tools.multi = !this.tools.multi;
         this.onToolChanged();
       }),
+      tb('clear', 'Clear', 'Clear selection (Esc)', () => this.select([], 'replace')),
       h('div', { class: 'tb-sep' }),
       tb('joint', 'Joint', 'Draw joints (J)', () => this.tools.setTool('joint')),
       tb('frame', 'Frame', 'Draw frames (L)', () => this.tools.setTool('frame')),
@@ -452,6 +454,7 @@ export class App {
     this.toolButtons.get('undo')!.disabled = !this.model.canUndo;
     this.toolButtons.get('redo')!.disabled = !this.model.canRedo;
     this.toolButtons.get('del')!.disabled = sel === 0;
+    this.toolButtons.get('clear')!.disabled = sel === 0;
     const chain = this.tools.chain.length > 0;
     this.toolButtons.get('done')!.disabled = !chain;
     const { workPlane, elevation } = d.settings;
@@ -502,33 +505,27 @@ export class App {
 
   // ================================================================ commands
   readonly commands: Record<string, () => void> = {
-    jointLoad: () => this.need('joints') && D.jointLoadDialog(this),
-    framePoint: () => this.need('frames') && D.framePointLoadDialog(this),
-    frameUniform: () => this.need('frames') && D.frameUniformLoadDialog(this),
-    areaLoad: () => this.need('areas') && D.areaLoadDialog(this),
-    assignSupport: () => this.need('joints') && D.assignSupports(this),
-    assignSpring: () => this.need('joints') && D.assignSprings(this),
-    jointDisp: () => this.need('joints') && D.jointDisplacementDialog(this),
-    assignMaterial: () => this.need('frames') && D.assignFrameProps(this, 'material'),
-    assignSection: () => this.need('frames') && D.assignFrameProps(this, 'section'),
-    assignBeta: () => this.need('frames') && D.assignFrameProps(this, 'beta'),
-    assignReleases: () => this.need('frames') && D.assignFrameReleases(this),
-    assignArea: () => this.need('areas') && D.assignAreaDistribution(this),
+    jointLoad: () => D.jointLoadDialog(this),
+    framePoint: () => D.framePointLoadDialog(this),
+    frameUniform: () => D.frameUniformLoadDialog(this),
+    areaLoad: () => D.areaLoadDialog(this),
+    assignSupport: () => D.assignSupports(this),
+    assignSpring: () => D.assignSprings(this),
+    jointDisp: () => D.jointDisplacementDialog(this),
+    assignMaterial: () => D.assignFrameProps(this, 'material'),
+    assignSection: () => D.assignFrameProps(this, 'section'),
+    assignBeta: () => D.assignFrameProps(this, 'beta'),
+    assignReleases: () => D.assignFrameReleases(this),
+    assignArea: () => D.assignAreaDistribution(this),
     move: () => D.moveDialog(this),
     replicate: () => D.replicateDialog(this),
-    divide: () => this.need('frames') && D.divideDialog(this),
+    divide: () => D.divideDialog(this),
     delete: () => void this.deleteSelected(),
     resultsTables: () => D.resultsTablesDialog(this),
   };
 
   cmd(name: string): void {
     this.commands[name]?.();
-  }
-
-  private need(kind: 'joints' | 'frames' | 'areas'): boolean {
-    if (this.selected()[kind].length) return true;
-    toast(`Select one or more ${kind} first`, 'warn');
-    return false;
   }
 
   undo(): void {
@@ -890,7 +887,7 @@ export class App {
     return [
       { label: 'Materials…', action: () => D.defineMaterials(this) },
       { label: 'Frame sections…', action: () => D.defineSections(this) },
-      { label: 'Section catalogs…', action: () => D.catalogManager(this) },
+      { label: 'Section catalogs…', action: () => D.catalogManager() },
       { label: 'Support types…', action: () => D.defineSupports(this) },
       { separator: true },
       { label: 'Grid & work plane…', action: () => D.defineGrid(this) },

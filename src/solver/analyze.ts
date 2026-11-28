@@ -1,5 +1,5 @@
 import { sectionProps } from '../model/sections';
-import { DOF_NAMES, hasSprings, migrateModel, releaseMechanismError, type Joint, type LoadCombo, type MemberReleases, type ModelData } from '../model/types';
+import { DOF_NAMES, hasSprings, migrateModel, releaseMechanismError, type Joint, type LoadCombo, type ModelData } from '../model/types';
 import {
   condenseFER,
   condenseStiffness,
@@ -10,6 +10,7 @@ import {
   pointFER,
   recoverLocalDisplacements,
   rotation,
+  scale,
   shearPhi,
   toGlobal12,
   toLocal12,
@@ -60,8 +61,6 @@ interface Elem {
   kl: Float64Array;
   klCondensed: Float64Array;
   condInfo: CondensationInfo;
-  relI?: MemberReleases;
-  relJ?: MemberReleases;
   E: number;
   A: number;
   I22: number;
@@ -124,7 +123,6 @@ function loadsLeftOf(loads: MemberLoads, x: number, inclusive: boolean): { F: Ve
   return { F, M };
 }
 
-/** Cumulative trapezoid integral of y over x. */
 /** Cyclic Jacobi eigen-decomposition of a small symmetric matrix; vectors[:, m] pairs with values[m]. */
 function symEigen(m: number[][]): { values: number[]; vectors: number[][] } {
   const n = m.length;
@@ -164,6 +162,7 @@ function symEigen(m: number[][]): { values: number[]; vectors: number[][] } {
   return { values: a.map((r, i) => r[i]), vectors: v };
 }
 
+/** Cumulative trapezoid integral of y over x. */
 function cumtrapz(x: number[], y: number[]): number[] {
   const out = [0];
   for (let k = 1; k < x.length; k++) out.push(out[k - 1] + ((x[k] - x[k - 1]) * (y[k] + y[k - 1])) / 2);
@@ -190,8 +189,6 @@ export interface ResultSet {
   results: Record<string, Results>;
 }
 
-const scale3 = (v: Vec3, s: number): Vec3 => [v[0] * s, v[1] * s, v[2] * s];
-
 /** Member loads of one load case, keyed by frame id. */
 function caseMemberLoads(
   data: ModelData,
@@ -209,7 +206,7 @@ function caseMemberLoads(
     for (const l of data.framePointLoads)
       if (l.frame === e.id && l.P && inCase(l)) {
         const d = dirLocal(l.dir, e.axes);
-        loads.points.push({ a: Math.min(Math.max(l.rd, 0), 1) * e.L, p: scale3(d, l.P) });
+        loads.points.push({ a: Math.min(Math.max(l.rd, 0), 1) * e.L, p: scale(d, l.P) });
       }
     for (const l of data.frameUniformLoads)
       if (l.frame === e.id && l.w && inCase(l)) loads.dists.push({ x1: 0, x2: e.L, w1: l.w, w2: l.w, d: dirLocal(l.dir, e.axes) });
@@ -250,7 +247,7 @@ export function combineResults(template: Results, parts: [Results, number][]): R
     const loads: MemberLoads = { points: [], dists: [] };
     for (const [r, s] of parts) {
       if (!s) continue;
-      for (const p of r.frames[n].loads.points) loads.points.push({ a: p.a, p: scale3(p.p, s) });
+      for (const p of r.frames[n].loads.points) loads.points.push({ a: p.a, p: scale(p.p, s) });
       for (const d of r.frames[n].loads.dists) loads.dists.push({ ...d, w1: d.w1 * s, w2: d.w2 * s });
     }
     return {
@@ -374,8 +371,6 @@ function solveAll(data: ModelData, combos: LoadCombo[]): ResultSet {
       kl,
       klCondensed: condInfo.klCondensed,
       condInfo,
-      relI: f.relI,
-      relJ: f.relJ,
       E: m.E,
       A: sp.A,
       I22: sp.I22,

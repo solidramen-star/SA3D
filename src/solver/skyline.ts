@@ -29,15 +29,6 @@ export class SkylineMatrix {
     this.a[this.maxa[j] + off] += v;
   }
 
-  get(i: number, j: number): number {
-    if (i > j) {
-      const t = i;
-      i = j;
-      j = t;
-    }
-    const off = j - i;
-    return off > this.heights[j] ? 0 : this.a[this.maxa[j] + off];
-  }
 
   /**
    * Factorize in place. Returns index of first non-positive/near-zero pivot (instability) or -1.

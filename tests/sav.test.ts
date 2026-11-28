@@ -3,6 +3,7 @@ import { defaultModel, FIXED, type ModelData, type Restraint } from '../src/mode
 import { csvField, parseCsv, parseUnitsCell, readSav, SavError, writeSav, type SavInfo } from '../src/io/savFormat';
 import { unitSystem } from '../src/model/units';
 import { analyzeAll } from '../src/solver/analyze';
+import { sampleAt } from '../src/solver/diagram';
 
 function sample(): ModelData {
   const d = defaultModel();
@@ -53,6 +54,26 @@ describe('.sav format', () => {
     expect(text).toContain('Case,');
     expect(text).toContain('TABLE,RESULTS FRAME FORCES');
     expect(readSav(text)).toEqual(d);
+  });
+
+  it('frame force results take the value just before a point load at a jump', () => {
+    const d = defaultModel();
+    d.settings.selfWeight = false;
+    d.joints = [
+      { id: 1, x: 0, y: 0, z: 0, r: [...FIXED] as Restraint },
+      { id: 2, x: 4, y: 0, z: 0, r: [...FIXED] as Restraint },
+    ];
+    d.frames = [{ id: 1, i: 1, j: 2, material: 'STEEL', section: 'IWF300', beta: 0 }];
+    d.framePointLoads = [{ case: 'DEAD', frame: 1, dir: 'GRAV', P: 10, rd: 0.5 }];
+    const r = analyzeAll(d);
+    const fr = r.results.DEAD.frames[0];
+    const jump = sampleAt(fr.x, fr.V2, 2);
+    expect(Math.abs(jump.left - jump.right)).toBeCloseTo(10);
+    const lines = writeSav(d, r).split('\r\n');
+    const start = lines.indexOf('TABLE,RESULTS FRAME FORCES');
+    const row = lines.slice(start + 2).find((l) => l.startsWith('DEAD,1,2,'))!.split(',').map(Number);
+    expect(row[4]).toBeCloseTo(jump.left, 6);
+    expect(row[8]).toBeCloseTo(sampleAt(fr.x, fr.M3, 2).left, 6);
   });
 
   it('accepts files re-saved by Excel (semicolons, trailing commas, BOM, reordered columns)', () => {

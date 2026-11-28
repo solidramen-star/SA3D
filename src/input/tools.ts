@@ -1,16 +1,16 @@
 import * as THREE from 'three';
 import type { App } from '../ui/app';
-import { parseKey, selKey, type SelKey } from '../view/viewer';
+import { parseKey, selKey } from '../view/viewer';
 import { toast } from '../ui/dom';
-import { frameCrossing } from '../model/snap';
-import type { Joint } from '../model/types';
+import { frameCrossing, segDist } from '../model/snap';
+import type { Joint, WorkPlane } from '../model/types';
 
-function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const l2 = dx * dx + dy * dy;
-  const t = l2 > 0 ? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
-  return Math.hypot(px - ax - dx * t, py - ay - dy * t);
+/** Round the in-plane coordinates of `p` to the grid and set the out-of-plane one to `elev`. */
+function snapToPlane(p: THREE.Vector3, plane: WorkPlane, g: number, elev: number): THREE.Vector3 {
+  const r = (val: number) => Math.round(Math.round(val / g) * g * 1e9) / 1e9;
+  if (plane === 'XY') return p.set(r(p.x), r(p.y), elev);
+  if (plane === 'XZ') return p.set(r(p.x), elev, r(p.z));
+  return p.set(elev, r(p.y), r(p.z));
 }
 
 export type ToolName = 'select' | 'joint' | 'frame' | 'area' | 'box';
@@ -82,12 +82,7 @@ export class ToolController {
     const p = v.workPlanePoint(x, y);
     if (!p) return null;
     const { gridSpacing: g, workPlane, elevation } = d.settings;
-    const r = (val: number) => Math.round(val / g) * g;
-    if (workPlane === 'XY') p.set(r(p.x), r(p.y), elevation);
-    else if (workPlane === 'XZ') p.set(r(p.x), elevation, r(p.z));
-    else p.set(elevation, r(p.y), r(p.z));
-    const clean = (val: number) => Math.round(val * 1e9) / 1e9;
-    p.set(clean(p.x), clean(p.y), clean(p.z));
+    snapToPlane(p, workPlane, g, Math.round(elevation * 1e9) / 1e9);
     return { pos: p, joint: null, kind: 'grid' };
   }
 
@@ -274,11 +269,7 @@ export class ToolController {
     const elev = workPlane === 'XY' ? j.z : workPlane === 'XZ' ? j.y : j.x;
     const p = this.app.viewer.workPlanePoint(x, y, elev);
     if (!p) return null;
-    const r = (val: number) => Math.round(Math.round(val / g) * g * 1e9) / 1e9;
-    if (workPlane === 'XY') p.set(r(p.x), r(p.y), j.z);
-    else if (workPlane === 'XZ') p.set(r(p.x), j.y, r(p.z));
-    else p.set(j.x, r(p.y), r(p.z));
-    return p;
+    return snapToPlane(p, workPlane, g, elev);
   }
 
   drag(x: number, y: number, phase: 'start' | 'move' | 'end' | 'cancel'): void {
@@ -380,12 +371,5 @@ export class ToolController {
     if (this.tool === 'area' && this.chain.length)
       return `Area: ${this.chain.length} point(s) [${this.chain.join(', ')}] – tap the next point, the first point, or Done.`;
     return TOOL_HINT[this.tool];
-  }
-
-  /** Keys of objects whose joints were just drawn; used to keep the selection sane after undo. */
-  static valid(app: App, k: SelKey): boolean {
-    const { kind, id } = parseKey(k);
-    const m = app.model;
-    return kind === 'j' ? !!m.joint(id) : kind === 'f' ? !!m.frame(id) : !!m.area(id);
   }
 }

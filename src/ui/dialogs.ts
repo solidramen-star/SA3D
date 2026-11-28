@@ -1,9 +1,11 @@
 import type { App } from './app';
 import {
   alertDialog,
+  btn,
   checkField,
   confirmDialog,
   h,
+  listTable,
   numField,
   openDialog,
   selectField,
@@ -51,25 +53,10 @@ function nameValid(name: string, existing: string[], label: string): string | nu
   return null;
 }
 
-function listTable(headers: string[], rows: Node[][]): HTMLElement {
-  return h(
-    'div',
-    { class: 'table-wrap' },
-    h(
-      'table',
-      { class: 'grid-table' },
-      h('thead', null, h('tr', null, ...headers.map((t) => h('th', null, t)))),
-      h('tbody', null, ...rows.map((r) => h('tr', null, ...r.map((c) => h('td', null, c))))),
-    ),
-  );
-}
-
 const fail = (msg: string): false => {
   toast(msg, 'error');
   return false;
 };
-
-const btn = (label: string, onclick: () => void, kind = 'small') => h('button', { class: 'btn ' + kind, type: 'button', onclick }, label);
 
 // ======================================================================= DEFINE
 export function defineMaterials(app: App): void {
@@ -82,11 +69,11 @@ export function defineMaterials(app: App): void {
         m.data.materials.map((mat) => {
           const used = m.data.frames.filter((f) => f.material === mat.name).length;
           return [
-            document.createTextNode(mat.name),
-            document.createTextNode(fmtU(mat.E, 'FA', 5)),
-            document.createTextNode(String(mat.nu)),
-            document.createTextNode(fmtU(mat.gamma, 'FV', 5)),
-            document.createTextNode(used ? `${used} frame(s)` : '–'),
+            mat.name,
+            fmtU(mat.E, 'FA', 5),
+            String(mat.nu),
+            fmtU(mat.gamma, 'FV', 5),
+            used ? `${used} frame(s)` : '–',
             h('span', { class: 'row-btns' }, btn('Edit', () => edit(mat)), btn('Delete', () => del(mat), 'small danger')),
           ];
         }),
@@ -219,17 +206,17 @@ export function defineSections(app: App): void {
           const p = sectionProps(s);
           const used = m.data.frames.filter((f) => f.section === s.name).length;
           return [
-            document.createTextNode(s.name),
-            document.createTextNode(SHAPE_LABEL[s.shape] + (s.catalog ? ` (${s.catalog})` : '')),
-            document.createTextNode(s.dims.map((v, k) => fmtU(v, dimQty(s.shape, k), 4)).join(' × ')),
-            document.createTextNode(fmtU(p.A, 'A', 4)),
-            document.createTextNode(fmtU(p.I33, 'L4', 4)),
-            document.createTextNode(used ? `${used} frame(s)` : '–'),
+            s.name,
+            SHAPE_LABEL[s.shape] + (s.catalog ? ` (${s.catalog})` : ''),
+            s.dims.map((v, k) => fmtU(v, dimQty(s.shape, k), 4)).join(' × '),
+            fmtU(p.A, 'A', 4),
+            fmtU(p.I33, 'L4', 4),
+            used ? `${used} frame(s)` : '–',
             h('span', { class: 'row-btns' }, btn('Edit', () => edit(s)), btn('Delete', () => del(s), 'small danger')),
           ];
         }),
       ),
-      h('div', { class: 'dlg-actions' }, btn('+ Add section', () => edit(null), 'primary'), btn('Section catalogs…', () => catalogManager(app))),
+      h('div', { class: 'dlg-actions' }, btn('+ Add section', () => edit(null), 'primary'), btn('Section catalogs…', () => catalogManager())),
     );
   };
   const del = async (s: Section) => {
@@ -296,7 +283,7 @@ export function defineSections(app: App): void {
       propsBox.replaceChildren(
         listTable(
           [`A (${uLabel('A')})`, `I33 (${uLabel('L4')})`, `I22 (${uLabel('L4')})`, `J (${uLabel('L4')})`, `As2 (${uLabel('A')})`, `As3 (${uLabel('A')})`],
-          [[fmtU(p.A, 'A'), fmtU(p.I33, 'L4'), fmtU(p.I22, 'L4'), fmtU(p.J, 'L4'), fmtU(p.As2, 'A'), fmtU(p.As3, 'A')].map((v) => document.createTextNode(v))],
+          [[fmtU(p.A, 'A'), fmtU(p.I33, 'L4'), fmtU(p.I22, 'L4'), fmtU(p.J, 'L4'), fmtU(p.As2, 'A'), fmtU(p.As3, 'A')]],
         ),
       );
     };
@@ -388,7 +375,7 @@ const csvUnit = () => (/(^|-)(in|ft)$/.test(units().id) ? 'in' : 'mm');
 const fileSafe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'catalog';
 
 /** Section catalog library: built-in starter tables plus user tables imported from CSV (edited in Excel). */
-export function catalogManager(_app: App): void {
+export function catalogManager(): void {
   const body = h('div');
   const exportCsv = async (cats: Catalog[], fileName: string) => {
     try {
@@ -414,9 +401,9 @@ export function catalogManager(_app: App): void {
           const shadows = c.source === 'user' && builtinNames.has(c.name.toLowerCase());
           const src = c.source === 'builtin' ? 'Built-in' : `Imported${c.imported ? ' ' + new Date(c.imported).toLocaleDateString() : ''}${shadows ? ' (replaces built-in)' : ''}`;
           return [
-            document.createTextNode(c.name),
-            document.createTextNode(src),
-            document.createTextNode(String(c.entries.length)),
+            c.name,
+            src,
+            String(c.entries.length),
             h(
               'span',
               { class: 'row-btns' },
@@ -456,9 +443,9 @@ export function catalogManager(_app: App): void {
         ? listTable(
             ['Catalog', 'Sections', ''],
             res.catalogs.map((c) => [
-              document.createTextNode(c.name),
-              document.createTextNode(String(c.entries.length)),
-              document.createTextNode(existing.has(c.name.toLowerCase()) ? 'replaces existing' : 'new'),
+              c.name,
+              String(c.entries.length),
+              existing.has(c.name.toLowerCase()) ? 'replaces existing' : 'new',
             ]),
           )
         : '',
@@ -537,8 +524,8 @@ export function defineSupports(app: App): void {
       listTable(
         ['Name', 'Restrained DOF', ''],
         m.data.supportTypes.map((s) => [
-          document.createTextNode(s.name),
-          document.createTextNode(restraintText(s.r)),
+          s.name,
+          restraintText(s.r),
           h('span', { class: 'row-btns' }, btn('Edit', () => edit(s)), btn('Delete', () => del(s), 'small danger')),
         ]),
       ),
@@ -1215,7 +1202,7 @@ export function resultsTablesDialog(app: App): void {
         listTable(
           ['Joint', ...['UX', 'UY', 'UZ'].map((t) => `${t} (${uLabel('L')})`), 'RX (rad)', 'RY (rad)', 'RZ (rad)'],
           app.model.data.joints.map((j) =>
-            [String(j.id), ...(r.disp[j.id] ?? []).map((v, k) => (k < 3 ? fmtU(v, 'L', 4) : fmt(v, 4)))].map((t) => document.createTextNode(t)),
+            [String(j.id), ...(r.disp[j.id] ?? []).map((v, k) => (k < 3 ? fmtU(v, 'L', 4) : fmt(v, 4)))],
           ),
         ),
     ],
@@ -1224,7 +1211,7 @@ export function resultsTablesDialog(app: App): void {
       () =>
         listTable(
           ['Joint', ...['FX', 'FY', 'FZ'].map((t) => `${t} (${uLabel('F')})`), ...['MX', 'MY', 'MZ'].map((t) => `${t} (${uLabel('M')})`)],
-          Object.entries(r.reactions).map(([id, v]) => [id, ...v.map((x, k) => fmtU(x, k < 3 ? 'F' : 'M', 4))].map((t) => document.createTextNode(t))),
+          Object.entries(r.reactions).map(([id, v]) => [id, ...v.map((x, k) => fmtU(x, k < 3 ? 'F' : 'M', 4))]),
         ),
     ],
     [
@@ -1236,8 +1223,8 @@ export function resultsTablesDialog(app: App): void {
             const n = f.x.length - 1;
             const at = (k: number) => [f.P[k], f.V2[k], f.V3[k], f.T[k], f.M2[k], f.M3[k]].map((v, c) => fmtU(v, c < 3 ? 'F' : 'M', 4));
             return [
-              [String(f.id), 'I', ...at(0)].map((t) => document.createTextNode(t)),
-              ['', 'J', ...at(n)].map((t) => document.createTextNode(t)),
+              [String(f.id), 'I', ...at(0)],
+              ['', 'J', ...at(n)],
             ];
           }),
         ),
@@ -1280,7 +1267,7 @@ export function helpDialog(): void {
   const body = h(
     'div',
     null,
-    listTable(['Action', 'Touch (iPad/Android)', 'Mouse & keyboard'], rows.map((r) => r.map((t) => document.createTextNode(t)))),
+    listTable(['Action', 'Touch (iPad/Android)', 'Mouse & keyboard'], rows.map((r) => r)),
     h(
       'ol',
       { class: 'small' },
@@ -1318,9 +1305,9 @@ export function loadCasesDialog(app: App): void {
       listTable(
         ['Name', 'Type', 'Loads', ''],
         m.data.loadCases.map((lc, i) => [
-          document.createTextNode(lc.name),
-          document.createTextNode(lc.type + (i === m.data.loadCases.findIndex((x) => x.type === 'Dead') && m.data.settings.selfWeight ? ' + self weight' : '')),
-          document.createTextNode(String(caseLoadCount(m.data, lc.name))),
+          lc.name,
+          lc.type + (i === m.data.loadCases.findIndex((x) => x.type === 'Dead') && m.data.settings.selfWeight ? ' + self weight' : ''),
+          String(caseLoadCount(m.data, lc.name)),
           h('span', { class: 'row-btns' }, btn('Edit', () => edit(lc)), btn('Delete', () => void del(lc), 'small danger')),
         ]),
       ),
@@ -1389,8 +1376,8 @@ export function loadCombosDialog(app: App): void {
         ? listTable(
             ['Name', 'Combination', ''],
             m.data.loadCombos.map((c) => [
-              document.createTextNode(c.name),
-              document.createTextNode(comboText(c)),
+              c.name,
+              comboText(c),
               h('span', { class: 'row-btns' }, btn('Edit', () => edit(c)), btn('Delete', () => del(c), 'small danger')),
             ]),
           )

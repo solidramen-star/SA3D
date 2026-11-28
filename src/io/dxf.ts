@@ -5,6 +5,7 @@
 import { COORD_TOL, type Model } from '../model/model';
 import { FREE, type ModelData, type Restraint } from '../model/types';
 import type { FrameResult, Results } from '../solver/analyze';
+import { cross, normalize } from '../model/vec3';
 
 export type P3 = [number, number, number];
 
@@ -51,7 +52,7 @@ export function dxfUnitScale(code: number): number | null {
 }
 
 /** `$INSUNITS` code for a length unit given in metres (0 if there is no matching code). */
-export function insUnitsFor(kL: number): number {
+function insUnitsFor(kL: number): number {
   const close = (a: number) => Math.abs(kL - a) < a * 1e-9;
   if (close(1)) return 6;
   if (close(0.001)) return 4;
@@ -68,13 +69,8 @@ function ocsToWcs(n: P3): (p: P3) => P3 {
   const len = Math.hypot(n[0], n[1], n[2]);
   if (len < 1e-12 || (Math.abs(n[0]) < 1e-12 && Math.abs(n[1]) < 1e-12 && n[2] > 0)) return (p) => p;
   const N: P3 = [n[0] / len, n[1] / len, n[2] / len];
-  const cross = (a: P3, b: P3): P3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-  const unit = (a: P3): P3 => {
-    const l = Math.hypot(a[0], a[1], a[2]);
-    return [a[0] / l, a[1] / l, a[2] / l];
-  };
-  const Ax = unit(Math.abs(N[0]) < 1 / 64 && Math.abs(N[1]) < 1 / 64 ? cross([0, 1, 0], N) : cross([0, 0, 1], N));
-  const Ay = unit(cross(N, Ax));
+  const Ax = normalize(Math.abs(N[0]) < 1 / 64 && Math.abs(N[1]) < 1 / 64 ? cross([0, 1, 0], N) : cross([0, 0, 1], N));
+  const Ay = normalize(cross(N, Ax));
   return ([x, y, z]) => [x * Ax[0] + y * Ay[0] + z * N[0], x * Ax[1] + y * Ay[1] + z * N[1], x * Ax[2] + y * Ay[2] + z * N[2]];
 }
 
@@ -229,7 +225,7 @@ export interface DxfImportReport {
 }
 
 /** Normalised name used to compare layer tokens with section / material names. */
-export const layerToken = (s: string) => sanitizeLayer(s).toUpperCase();
+const layerToken = (s: string) => sanitizeLayer(s).toUpperCase();
 
 export const isAreaLayer = (layer: string) => /^(SA3D_)?AREA/i.test(layer);
 

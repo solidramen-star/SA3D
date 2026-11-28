@@ -1,18 +1,8 @@
 import type { MemberReleases } from '../model/types';
 
-export type Vec3 = [number, number, number];
+import { add, cross, dot, norm, normalize, scale, sub, type Vec3 } from '../model/vec3';
 
-export const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-export const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-export const cross = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
-export const norm = (a: Vec3) => Math.hypot(a[0], a[1], a[2]);
-export const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-export const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-export const normalize = (a: Vec3): Vec3 => scale(a, 1 / norm(a));
+export { add, cross, dot, norm, normalize, scale, sub, type Vec3 };
 
 /**
  * Local axes (SAP2000-style): 1 = i→j; for non-vertical members the 1-2 plane is vertical with

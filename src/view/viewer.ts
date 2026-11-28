@@ -6,6 +6,7 @@ import { CSS2DObject, CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRe
 import { DOF_NAMES, type Frame, type Joint, type LoadDir, type ModelData, type Section } from '../model/types';
 import { channelOutline, sectionProps } from '../model/sections';
 import { localAxes, type Vec3 } from '../solver/frame3d';
+import { segDist } from '../model/snap';
 import type { FrameResult, Results } from '../solver/analyze';
 import { fmt, fmtU, units, withU } from '../model/units';
 
@@ -96,8 +97,6 @@ const SECTION_COLORS = [0x94a3b8, 0x60a5fa, 0xf472b6, 0x34d399, 0xfbbf24, 0xa78b
 const v3 = (a: Vec3 | Joint) => (Array.isArray(a) ? new THREE.Vector3(a[0], a[1], a[2]) : new THREE.Vector3(a.x, a.y, a.z));
 const jv = (j: Joint): Vec3 => [j.x, j.y, j.z];
 
-export { fmt };
-
 function loadDirVector(dir: LoadDir, axes: [Vec3, Vec3, Vec3]): THREE.Vector3 {
   switch (dir) {
     case 'GX':
@@ -117,77 +116,72 @@ function loadDirVector(dir: LoadDir, axes: [Vec3, Vec3, Vec3]): THREE.Vector3 {
   }
 }
 
-function circleTexture(): THREE.Texture {
+/** 64×64 canvas texture for point/snap markers. */
+function makeMarkerTexture(draw: (g: CanvasRenderingContext2D) => void): THREE.Texture {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
   const g = c.getContext('2d')!;
-  g.beginPath();
-  g.arc(32, 32, 28, 0, Math.PI * 2);
-  g.fillStyle = '#fff';
-  g.fill();
-  g.lineWidth = 6;
-  g.strokeStyle = 'rgba(0,0,0,0.55)';
-  g.stroke();
+  draw(g);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+function circleTexture(): THREE.Texture {
+  return makeMarkerTexture((g) => {
+    g.beginPath();
+    g.arc(32, 32, 28, 0, Math.PI * 2);
+    g.fillStyle = '#fff';
+    g.fill();
+    g.lineWidth = 6;
+    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.stroke();
+  });
 }
 
 /** Snap marker for frame midpoints. */
 function triangleTexture(): THREE.Texture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d')!;
-  g.beginPath();
-  g.moveTo(32, 5);
-  g.lineTo(60, 56);
-  g.lineTo(4, 56);
-  g.closePath();
-  g.fillStyle = '#fff';
-  g.fill();
-  g.lineWidth = 5;
-  g.strokeStyle = 'rgba(0,0,0,0.55)';
-  g.stroke();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  return makeMarkerTexture((g) => {
+    g.beginPath();
+    g.moveTo(32, 5);
+    g.lineTo(60, 56);
+    g.lineTo(4, 56);
+    g.closePath();
+    g.fillStyle = '#fff';
+    g.fill();
+    g.lineWidth = 5;
+    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.stroke();
+  });
 }
 
 /** Snap marker for frame crossings. */
 function crossTexture(): THREE.Texture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d')!;
-  g.lineCap = 'round';
-  for (const [w, s] of [[18, 'rgba(0,0,0,0.55)'], [10, '#fff']] as const) {
-    g.beginPath();
-    g.moveTo(10, 10);
-    g.lineTo(54, 54);
-    g.moveTo(54, 10);
-    g.lineTo(10, 54);
-    g.lineWidth = w;
-    g.strokeStyle = s;
-    g.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  return makeMarkerTexture((g) => {
+    g.lineCap = 'round';
+    for (const [w, s] of [[18, 'rgba(0,0,0,0.55)'], [10, '#fff']] as const) {
+      g.beginPath();
+      g.moveTo(10, 10);
+      g.lineTo(54, 54);
+      g.moveTo(54, 10);
+      g.lineTo(10, 54);
+      g.lineWidth = w;
+      g.strokeStyle = s;
+      g.stroke();
+    }
+  });
 }
 
 function hollowCircleTexture(): THREE.Texture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d')!;
-  g.beginPath();
-  g.arc(32, 32, 20, 0, Math.PI * 2);
-  g.fillStyle = 'rgba(15, 23, 42, 0.9)';
-  g.fill();
-  g.lineWidth = 8;
-  g.strokeStyle = '#38bdf8';
-  g.stroke();
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+  return makeMarkerTexture((g) => {
+    g.beginPath();
+    g.arc(32, 32, 20, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(15, 23, 42, 0.9)';
+    g.fill();
+    g.lineWidth = 8;
+    g.strokeStyle = '#38bdf8';
+    g.stroke();
+  });
 }
 
 function sectionShape(sec: Section): THREE.Shape | null {
@@ -294,7 +288,7 @@ export class Viewer {
   private crossTex = crossTexture();
   private renderQueued = false;
   private animStart = 0;
-  private deformed: { geo: LineSegmentsGeometry; base: Float32Array; delta: Float32Array; pts?: THREE.Points } | null = null;
+  private deformed: { geo: LineSegmentsGeometry; base: Float32Array; delta: Float32Array} | null = null;
 
   private data: ModelData | null = null;
   private selection = new Set<string>();
@@ -439,7 +433,6 @@ export class Viewer {
     return this.ray(cx, cy).intersectPlane(plane, new THREE.Vector3());
   }
 
-  /** Intersection of the pointer ray with the work plane. */
   /** Intersection of the pointer ray with the work plane (or a parallel plane at `elev`). */
   workPlanePoint(cx: number, cy: number, elev?: number): THREE.Vector3 | null {
     if (!this.data) return null;
@@ -664,8 +657,7 @@ export class Viewer {
     }
     if (fpos.length) {
       if (this.display.extruded && !ghost) this.buildExtruded(d, jm);
-      else this.modelGroup.add(this.lines(fpos, null, 3, fcol));
-      if (this.display.extruded && ghost) this.modelGroup.add(this.lines(fpos, null, 2, fcol));
+      else this.modelGroup.add(this.lines(fpos, null, this.display.extruded ? 2 : 3, fcol));
       if (this.display.extruded && !ghost) {
         // keep selection visible with thin lines over the solids
         const sp: number[] = [];
@@ -1097,9 +1089,7 @@ export class Viewer {
     const v = this.resultOpts.view;
     if (v === 'deformed') this.buildDeformed(r, d);
     else if (FORCE_VIEWS.includes(v)) this.buildDiagram(r, v as keyof FrameResult);
-    if (v === 'reactions' || v === 'deformed' || FORCE_VIEWS.includes(v)) {
-      if (v === 'reactions') this.buildReactions(r, d);
-    }
+    else if (v === 'reactions') this.buildReactions(r, d);
   }
 
   private buildDeformed(r: Results, d: ModelData): void {
@@ -1247,12 +1237,9 @@ export class Viewer {
   }
 
   // ---------------------------------------------------------------- overlay
-  private overlayObjs: THREE.Object3D[] = [];
   /** Rubber-band lines and the snap marker (circle = joint/grid, triangle = frame midpoint, X = frame crossing). */
   setOverlay(rubber: [THREE.Vector3, THREE.Vector3][] | null, snap: THREE.Vector3 | null, kind: 'joint' | 'mid' | 'cross' | 'grid' = 'joint'): void {
-    for (const o of this.overlayObjs) this.overlayGroup.remove(o);
     this.clearGroup(this.overlayGroup);
-    this.overlayObjs = [];
     if (rubber && rubber.length) {
       const pos: number[] = [];
       for (const [a, b] of rubber) pos.push(...a.toArray(), ...b.toArray());
@@ -1365,19 +1352,6 @@ export class Viewer {
   jointScreen(j: Joint) {
     return this.toScreen(v3(j));
   }
-
-  dispose(): void {
-    this.renderer.dispose();
-  }
-}
-
-function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const l2 = dx * dx + dy * dy;
-  let t = l2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0;
-  t = Math.max(0, Math.min(1, t));
-  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
 function pointInPoly(x: number, y: number, pts: { x: number; y: number }[]): boolean {

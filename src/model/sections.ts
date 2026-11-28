@@ -100,7 +100,7 @@ function compositeProps(rects: Rect[]) {
 }
 
 /** Centroid distance from the web back of a channel (UNP / C) along local 3; 0 for other shapes. */
-export function channelCentroid(s: Section): number {
+function channelCentroid(s: Section): number {
   return s.shape === 'unp' || s.shape === 'C' ? compositeProps(channelRects(s)).xc : 0;
 }
 

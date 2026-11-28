@@ -1,30 +1,16 @@
 import type { App } from './app';
-import { checkField, h, numField, selectField, toast } from './dom';
-import { assignFrameReleases, restraintText, springText } from './dialogs';
+import { btn, checkField, h, listTable, numField, selectField, toast } from './dom';
+import { restraintText, springText } from './dialogs';
 import { frameDiagramsDialog } from './diagrams';
 import { DOF_NAMES, formatReleases, hasSprings, LOAD_DIR_LABEL, type AreaDistribution, type Restraint } from '../model/types';
 import { SHAPE_LABEL, sectionProps } from '../model/sections';
 import { fmt, fmtU, uLabel, withU } from '../model/units';
+import { polygonArea } from '../solver/loads';
 
 const kv = (rows: [string, string | Node][]) =>
   h('dl', { class: 'kv' }, ...rows.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)]));
 
 const section = (title: string, ...children: (Node | null)[]) => h('section', { class: 'insp-sec' }, h('h3', null, title), ...children);
-
-const smallBtn = (label: string, onclick: () => void, cls = '') => h('button', { class: 'btn small ' + cls, type: 'button', onclick }, label);
-
-function table(headers: string[], rows: string[][]) {
-  return h(
-    'div',
-    { class: 'table-wrap' },
-    h(
-      'table',
-      { class: 'grid-table compact' },
-      h('thead', null, h('tr', null, ...headers.map((t) => h('th', null, t)))),
-      h('tbody', null, ...rows.map((r) => h('tr', null, ...r.map((c) => h('td', null, c))))),
-    ),
-  );
-}
 
 export function renderInspector(app: App, host: HTMLElement): void {
   const s = app.selected();
@@ -64,7 +50,7 @@ function summary(app: App): Node[] {
           ['ΣLoad (X,Y,Z)', r.stats.sumLoad.map((v) => fmtU(v, 'F', 4)).join(', ') + ' ' + uLabel('F')],
           ['ΣReaction (X,Y,Z)', r.stats.sumReaction.map((v) => fmtU(v, 'F', 4)).join(', ') + ' ' + uLabel('F')],
         ]),
-        smallBtn('Show result tables…', () => app.cmd('resultsTables')),
+        btn('Show result tables…', () => app.cmd('resultsTables')),
       ),
     );
     if (r.warnings.length) out.push(section('Warnings', h('ul', { class: 'warn-list' }, ...r.warnings.map((w) => h('li', null, w)))));
@@ -74,7 +60,7 @@ function summary(app: App): Node[] {
 }
 
 function applyRow(fields: { get(): number }[], label: string, apply: (v: number[]) => string | null | void) {
-  return smallBtn(
+  return btn(
     label,
     () => {
       const v = fields.map((f) => f.get());
@@ -82,7 +68,7 @@ function applyRow(fields: { get(): number }[], label: string, apply: (v: number[
       const err = apply(v);
       if (err) toast(err, 'error');
     },
-    'primary',
+    'small primary',
   );
 }
 
@@ -103,7 +89,7 @@ function jointPanel(app: App, id: number): Node[] {
     'div',
     { class: 'chips' },
     ...m.data.supportTypes.map((st) =>
-      smallBtn(st.name, () =>
+      btn(st.name, () =>
         m.commit('support', () => {
           m.joint(id)!.r = [...st.r] as Restraint;
         }),
@@ -126,15 +112,15 @@ function jointPanel(app: App, id: number): Node[] {
       h(
         'div',
         { class: 'row-btns' },
-        smallBtn('Edit springs…', () => app.cmd('assignSpring')),
+        btn('Edit springs…', () => app.cmd('assignSpring')),
         j.k
-          ? smallBtn(
+          ? btn(
               'Remove',
               () =>
                 m.commit('clear springs', () => {
                   delete m.joint(id)!.k;
                 }),
-              'danger',
+              'small danger',
             )
           : null,
       ),
@@ -142,23 +128,24 @@ function jointPanel(app: App, id: number): Node[] {
     section(
       'Joint loads',
       loads.length
-        ? table(
+        ? listTable(
             ['Case', ...['FX', 'FY', 'FZ'].map((t) => `${t} (${uLabel('F')})`), ...['MX', 'MY', 'MZ'].map((t) => `${t} (${uLabel('M')})`)],
             loads.map((l) => [l.case, ...l.f.map((v, k) => fmtU(v, k < 3 ? 'F' : 'M', 4))]),
+            true,
           )
         : h('p', { class: 'muted small' }, 'None'),
       h(
         'div',
         { class: 'row-btns' },
-        smallBtn('Add load…', () => app.cmd('jointLoad')),
+        btn('Add load…', () => app.cmd('jointLoad')),
         loads.length
-          ? smallBtn(
+          ? btn(
               'Delete loads',
               () =>
                 m.commit('delete joint loads', (d) => {
                   d.jointLoads = d.jointLoads.filter((l) => l.joint !== id);
                 }),
-              'danger',
+              'small danger',
             )
           : null,
       ),
@@ -168,21 +155,22 @@ function jointPanel(app: App, id: number): Node[] {
     out.push(
       section(
         'Prescribed displacements',
-        table(
+        listTable(
           ['Case', ...['UX', 'UY', 'UZ'].map((t) => `${t} (${uLabel('L')})`), 'RX', 'RY', 'RZ'],
           disps.map((l) => [l.case, ...l.d.map((v, k) => (k < 3 ? fmtU(v, 'L', 4) : fmt(v, 4)))]),
+          true,
         ),
         h(
           'div',
           { class: 'row-btns' },
-          smallBtn('Edit…', () => app.cmd('jointDisp')),
-          smallBtn(
+          btn('Edit…', () => app.cmd('jointDisp')),
+          btn(
             'Delete',
             () =>
               m.commit('delete joint displacements', (d) => {
                 d.jointDisplacements = d.jointDisplacements.filter((l) => l.joint !== id);
               }),
-            'danger',
+            'small danger',
           ),
         ),
       ),
@@ -195,8 +183,8 @@ function jointPanel(app: App, id: number): Node[] {
     out.push(
       section(
         `Displacement — ${app.resultName}`,
-        table(['UX', 'UY', 'UZ'].map((t) => `${t} (${uLabel('L')})`), [dv.slice(0, 3).map((v) => fmtU(v, 'L', 4))]),
-        table(['RX (rad)', 'RY (rad)', 'RZ (rad)'], [dv.slice(3).map((v) => fmt(v, 4))]),
+        listTable(['UX', 'UY', 'UZ'].map((t) => `${t} (${uLabel('L')})`), [dv.slice(0, 3).map((v) => fmtU(v, 'L', 4))], true),
+        listTable(['RX (rad)', 'RY (rad)', 'RZ (rad)'], [dv.slice(3).map((v) => fmt(v, 4))], true),
       ),
     );
     const rv = r.reactions[id];
@@ -204,8 +192,8 @@ function jointPanel(app: App, id: number): Node[] {
       out.push(
         section(
           'Support reaction',
-          table(['FX', 'FY', 'FZ'].map((t) => `${t} (${uLabel('F')})`), [rv.slice(0, 3).map((v) => fmtU(v, 'F', 4))]),
-          table(['MX', 'MY', 'MZ'].map((t) => `${t} (${uLabel('M')})`), [rv.slice(3).map((v) => fmtU(v, 'M', 4))]),
+          listTable(['FX', 'FY', 'FZ'].map((t) => `${t} (${uLabel('F')})`), [rv.slice(0, 3).map((v) => fmtU(v, 'F', 4))], true),
+          listTable(['MX', 'MY', 'MZ'].map((t) => `${t} (${uLabel('M')})`), [rv.slice(3).map((v) => fmtU(v, 'M', 4))], true),
         ),
       );
   }
@@ -251,9 +239,9 @@ function framePanel(app: App, id: number): Node[] {
       h(
         'div',
         { class: 'row-btns' },
-        smallBtn('Edit releases…', () => assignFrameReleases(app)),
+        btn('Edit releases…', () => app.cmd('assignReleases')),
         f.relI || f.relJ
-          ? smallBtn('Set continuous', () => {
+          ? btn('Set continuous', () => {
               m.commit('clear releases', () => {
                 delete m.frame(id)!.relI;
                 delete m.frame(id)!.relJ;
@@ -265,28 +253,29 @@ function framePanel(app: App, id: number): Node[] {
     section(
       'Frame loads',
       pl.length || ul.length
-        ? table(
+        ? listTable(
             ['Case', 'Type', 'Direction', 'Value', 'Position'],
             [
               ...pl.map((l) => [l.case, 'Point', LOAD_DIR_LABEL[l.dir], withU(l.P, 'F', 4), 'rd = ' + fmt(l.rd, 3)]),
               ...ul.map((l) => [l.case, 'Uniform', LOAD_DIR_LABEL[l.dir], withU(l.w, 'FL', 4), 'full length']),
             ],
+            true,
           )
         : h('p', { class: 'muted small' }, 'None'),
       h(
         'div',
         { class: 'row-btns' },
-        smallBtn('Point load…', () => app.cmd('framePoint')),
-        smallBtn('Uniform load…', () => app.cmd('frameUniform')),
+        btn('Point load…', () => app.cmd('framePoint')),
+        btn('Uniform load…', () => app.cmd('frameUniform')),
         pl.length || ul.length
-          ? smallBtn(
+          ? btn(
               'Delete loads',
               () =>
                 m.commit('delete frame loads', (dd) => {
                   dd.framePointLoads = dd.framePointLoads.filter((l) => l.frame !== id);
                   dd.frameUniformLoads = dd.frameUniformLoads.filter((l) => l.frame !== id);
                 }),
-              'danger',
+              'small danger',
             )
           : null,
       ),
@@ -307,18 +296,19 @@ function framePanel(app: App, id: number): Node[] {
     out.push(
       section(
         `Internal forces — ${app.resultName}`,
-        table(['', 'End I', 'End J', 'Max', 'Min'], rows),
+        listTable(['', 'End I', 'End J', 'Max', 'Min'], rows, true),
         h('p', { class: 'muted small' }, `Max displacement along member: ${withU(maxD, 'L', 4)}`),
-        smallBtn('Diagrams…', () => frameDiagramsDialog(app, id)),
+        btn('Diagrams…', () => frameDiagramsDialog(app, id)),
       ),
     );
     const details = h(
       'details',
       null,
       h('summary', null, 'Station values'),
-      table(
+      listTable(
         [`x (${uLabel('L')})`, ...comps.map((c, i) => `${c} (${uLabel(qty(i))})`)],
         fr.x.map((x, k) => [fmtU(x, 'L', 4), ...comps.map((c, i) => fmtU(fr[c][k], qty(i), 4))]),
+        true,
       ),
     );
     out.push(details);
@@ -331,18 +321,7 @@ function areaPanel(app: App, id: number): Node[] {
   const a = m.area(id)!;
   const jm = m.jointMap();
   const pts = a.joints.map((j) => jm.get(j)!).filter(Boolean);
-  // polygon area via Newell's method
-  let nx = 0;
-  let ny = 0;
-  let nz = 0;
-  for (let k = 0; k < pts.length; k++) {
-    const p = pts[k];
-    const q = pts[(k + 1) % pts.length];
-    nx += (p.y - q.y) * (p.z + q.z);
-    ny += (p.z - q.z) * (p.x + q.x);
-    nz += (p.x - q.x) * (p.y + q.y);
-  }
-  const size = Math.hypot(nx, ny, nz) / 2;
+  const size = polygonArea(pts.map((p): [number, number, number] => [p.x, p.y, p.z]));
   const dist = selectField<AreaDistribution>(
     'Load distribution',
     [
@@ -362,19 +341,19 @@ function areaPanel(app: App, id: number): Node[] {
     section('Properties', dist.row, h('p', { class: 'muted small' }, 'Areas carry no stiffness; loads are transferred to the edge frames.')),
     section(
       'Area loads',
-      loads.length ? table(['Case', `q (${uLabel('FA')}, down)`], loads.map((l) => [l.case, fmtU(l.q, 'FA', 4)])) : h('p', { class: 'muted small' }, 'None'),
+      loads.length ? listTable(['Case', `q (${uLabel('FA')}, down)`], loads.map((l) => [l.case, fmtU(l.q, 'FA', 4)]), true) : h('p', { class: 'muted small' }, 'None'),
       h(
         'div',
         { class: 'row-btns' },
-        smallBtn('Add load…', () => app.cmd('areaLoad')),
+        btn('Add load…', () => app.cmd('areaLoad')),
         loads.length
-          ? smallBtn(
+          ? btn(
               'Delete loads',
               () =>
                 m.commit('delete area loads', (d) => {
                   d.areaLoads = d.areaLoads.filter((l) => l.area !== id);
                 }),
-              'danger',
+              'small danger',
             )
           : null,
       ),
@@ -392,17 +371,17 @@ function multiPanel(app: App, s: { joints: number[]; frames: number[]; areas: nu
     ]),
   ];
   const btns: Node[] = [];
-  if (s.joints.length) btns.push(smallBtn('Supports…', () => app.cmd('assignSupport')), smallBtn('Springs…', () => app.cmd('assignSpring')), smallBtn('Joint load…', () => app.cmd('jointLoad')));
+  if (s.joints.length) btns.push(btn('Supports…', () => app.cmd('assignSupport')), btn('Springs…', () => app.cmd('assignSpring')), btn('Joint load…', () => app.cmd('jointLoad')));
   if (s.frames.length)
     btns.push(
-      smallBtn('Material…', () => app.cmd('assignMaterial')),
-      smallBtn('Section…', () => app.cmd('assignSection')),
-      smallBtn('End releases…', () => app.cmd('assignReleases')),
-      smallBtn('Point load…', () => app.cmd('framePoint')),
-      smallBtn('Uniform load…', () => app.cmd('frameUniform')),
+      btn('Material…', () => app.cmd('assignMaterial')),
+      btn('Section…', () => app.cmd('assignSection')),
+      btn('End releases…', () => app.cmd('assignReleases')),
+      btn('Point load…', () => app.cmd('framePoint')),
+      btn('Uniform load…', () => app.cmd('frameUniform')),
     );
-  if (s.areas.length) btns.push(smallBtn('Area load…', () => app.cmd('areaLoad')));
-  btns.push(smallBtn('Move…', () => app.cmd('move')), smallBtn('Replicate…', () => app.cmd('replicate')), smallBtn('Delete', () => app.cmd('delete'), 'danger'));
+  if (s.areas.length) btns.push(btn('Area load…', () => app.cmd('areaLoad')));
+  btns.push(btn('Move…', () => app.cmd('move')), btn('Replicate…', () => app.cmd('replicate')), btn('Delete', () => app.cmd('delete'), 'small danger'));
   out.push(section('Quick actions', h('div', { class: 'chips' }, ...btns)));
   return out;
 }

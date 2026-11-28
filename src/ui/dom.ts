@@ -22,8 +22,23 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
+export const btn = (label: string, onclick: () => void, kind = 'small') => h('button', { class: 'btn ' + kind, type: 'button', onclick }, label);
+
+export function listTable(headers: string[], rows: (Node | string)[][], compact = false): HTMLElement {
+  return h(
+    'div',
+    { class: 'table-wrap' },
+    h(
+      'table',
+      { class: compact ? 'grid-table compact' : 'grid-table' },
+      h('thead', null, h('tr', null, ...headers.map((t) => h('th', null, t)))),
+      h('tbody', null, ...rows.map((r) => h('tr', null, ...r.map((c) => h('td', null, c))))),
+    ),
+  );
+}
+
 /** Parse a number typed on any keyboard: accepts "," as decimal separator and exponents. */
-export function parseNum(s: string): number {
+function parseNum(s: string): number {
   const t = s.trim().replace(/\s/g, '').replace(',', '.');
   if (t === '') return NaN;
   return Number(t);
@@ -91,7 +106,6 @@ export function textField(label: string, value: string): Field<string> {
 
 export function selectField<T extends string>(label: string, options: [T, string][], value: T): Field<T> {
   const input = h('select', null, ...options.map(([v, l]) => h('option', { value: v, selected: v === value }, l))) as HTMLSelectElement;
-  input.addEventListener('change', () => input.blur());
   const row = h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), h('span', { class: 'field-input' }, input));
   return { row, input, get: () => input.value as T, set: (v) => (input.value = v) };
 }

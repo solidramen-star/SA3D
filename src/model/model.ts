@@ -238,6 +238,8 @@ export class Model {
             nf.material = f.material;
             nf.section = f.section;
             nf.beta = f.beta;
+            if (f.relI) nf.relI = [...f.relI] as typeof f.relI;
+            if (f.relJ) nf.relJ = [...f.relJ] as typeof f.relJ;
             created.frames.push(nid);
             for (const l of d.framePointLoads.filter((l) => l.frame === fid)) d.framePointLoads.push({ ...l, frame: nid });
             for (const l of d.frameUniformLoads.filter((l) => l.frame === fid)) d.frameUniformLoads.push({ ...l, frame: nid });

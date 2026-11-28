@@ -22,6 +22,7 @@ import {
 import { dimQty, sectionProps } from '../model/sections';
 import { SI, UNIT_SYSTEMS, fromU, toU, uLabel, units, type Qty, type UnitSystem, type UnitSystemId } from '../model/units';
 import type { ResultSet } from '../solver/analyze';
+import { sampleAt } from '../solver/diagram';
 
 /**
  * .sav file = comma separated tables that open directly in Excel.
@@ -81,17 +82,7 @@ function table(name: string, header: string[], rows: (string | number | boolean)
 
 const yn = (b: boolean) => (b ? 1 : 0);
 
-function interp(xs: number[], ys: number[], x: number): number {
-  if (x <= xs[0]) return ys[0];
-  for (let k = 1; k < xs.length; k++) {
-    if (x <= xs[k] + 1e-12) {
-      const dx = xs[k] - xs[k - 1];
-      if (dx <= 1e-12) return ys[k];
-      return ys[k - 1] + ((ys[k] - ys[k - 1]) * (x - xs[k - 1])) / dx;
-    }
-  }
-  return ys[ys.length - 1];
-}
+const interp = (xs: number[], ys: number[], x: number) => sampleAt(xs, ys, x).left;
 
 export function writeSav(d: ModelData, results?: ResultSet | null, savedAt = new Date(), u: UnitSystem = units()): string {
   const c = (v: number, q: Qty) => toU(v, q, u);

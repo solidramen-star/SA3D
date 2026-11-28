@@ -2,6 +2,15 @@
 
 This document records duplicate code, dead code / slop, subtle bugs, and overcomplex solutions found during the codebase audit. It is intended for any developer or AI agent picking up cleanup work before or during Phase 3.
 
+## Status (v1.2.2)
+
+| Section | Status |
+|---|---|
+| 1. Subtle bugs | ✅ 1.1–1.3 fixed |
+| 2. Duplicate code | ✅ 2.1–2.8 and 2.10 (textures) done · ⏸ 2.9 and 2.10 (label stacking) deferred |
+| 3. Dead code & slop | ✅ 3.1 and 3.2 done |
+| 4. Refactoring targets | ✅ 4.3 done (with 1.3) · ⏳ 4.1, 4.2, 4.4, 4.5 open |
+
 ---
 
 ## 1. Subtle Bugs & Oversights (Fix First)
@@ -15,6 +24,7 @@ This document records duplicate code, dead code / slop, subtle bugs, and overcom
   if (f.relJ) nf.relJ = [...f.relJ] as typeof f.relJ;
   ```
   Also copy `relI`/`relJ` in any other frame-duplication paths if present, and add a regression test in `tests/model.test.ts`.
+- **Status:** ✅ Resolved in v1.2.2. `replicate` copies `relI`/`relJ` as new arrays; no other frame-duplication path needed it (`splitFrameAt` already did). Test: `tests/model.test.ts` → "replicate copies end releases as independent arrays".
 
 ### 1.2 Double-drawn frame lines when `extruded && ghost`
 - **Location:** `src/view/viewer.ts:666-669` (inside `buildModel`)
@@ -30,11 +40,13 @@ This document records duplicate code, dead code / slop, subtle bugs, and overcom
   if (this.display.extruded && !ghost) this.buildExtruded(d, jm);
   else if (!this.display.extruded || ghost) this.modelGroup.add(this.lines(fpos, null, this.display.extruded ? 2 : 3, fcol));
   ```
+- **Status:** ✅ Resolved in v1.2.2 with a plain `else` (the suggested `!extruded || ghost` condition is implied): `else this.modelGroup.add(this.lines(fpos, null, this.display.extruded ? 2 : 3, fcol));`
 
 ### 1.3 Diagram scrubber destroys its own pointer capture on every move
 - **Location:** `src/ui/diagrams.ts:141, 145-161, 178-229, 238-246`
 - **Issue:** `pointerdown` calls `root.setPointerCapture(e.pointerId)` (or `handle.setPointerCapture`), and `pointermove` calls `onPick(x)` → `render()`, which executes `s.body.replaceChildren(...)` on every mouse/touch move. This detaches the captured element from the DOM mid-drag.
 - **Fix:** During an active drag, update only the cursor `<line>` `x1`/`x2` attributes and the `.fd-readout` / `.fd-pos` text content in place instead of calling `s.body.replaceChildren(...)`.
+- **Status:** ✅ Resolved in v1.2.2. It was worse than described: `pick` in `pointerdown` already replaced the SVG, so dragging never worked (only taps). `plot()` now returns `{ el, setCursor }`; taps and drags update the cursor line, readouts and position text in place, and only case/view/reference changes re-render.
 
 ---
 
@@ -52,6 +64,17 @@ This document records duplicate code, dead code / slop, subtle bugs, and overcom
 | 2.8 | **UI DOM helpers (`smallBtn` / `btn`, `table` / `listTable`, support checkboxes)** | `src/ui/inspector.ts:14-27, 94-122` vs `src/ui/dialogs.ts:54-72, 491-507, 725-755` | Move shared `btn`, `listTable`, and `restraintChecks` helpers into `src/ui/dom.ts` (or a new `src/ui/widgets.ts`). |
 | 2.9 | **CRUD-list & Load-dialog boilerplate** | `src/ui/dialogs.ts` (`defineMaterials`, `defineSections`, `defineSupports`, `loadCasesDialog`, `loadCombosDialog`, and the 5 `*LoadDialog` functions) | Factor out a `createListDialog(...)` and `createLoadDialog(...)` helper. |
 | 2.10 | **Canvas texture & multiline label stacking in `Viewer`** | `src/view/viewer.ts:120-191` (4 texture builders) and `887-1067` (`buildDisplacements` + 5 sections of `buildLoads`) | Extract `makeMarkerTexture(draw: (ctx) => void)` and `stackLabels(entries, prefix, renderFn)`. |
+
+**Status (v1.2.2):**
+- ✅ **2.1** `segDist` exported from `src/model/snap.ts`.
+- ✅ **2.2 / 2.3** New `src/model/vec3.ts` (re-exported by `solver/frame3d.ts`), so `model/` doesn't import `solver/`; used by `analyze.ts` (`scale3` removed), `dxf.ts` and `snap.ts`.
+- ✅ **2.4** `polygonArea` exported from `solver/loads.ts` and used by the inspector.
+- ✅ **2.5** `savFormat.ts` uses `sampleAt(...).left` (same values at jumps; test in `tests/sav.test.ts`).
+- ✅ **2.6** Done the other way round: `App.need` and its guards were removed; the dialogs' `need()` stays because it returns the ids and also guards direct calls.
+- ✅ **2.7** `snapToPlane()` helper in `input/tools.ts`.
+- ✅ **2.8** `btn` and `listTable` (with a `compact` option) moved to `ui/dom.ts`. The support checkboxes were not merged: the inspector and dialog layouts and commit behaviour differ.
+- ✅ **2.10** `makeMarkerTexture(draw)` for the 4 marker textures. ⏸ Label stacking deferred (offsets, keys and classes differ per load type).
+- ⏸ **2.9** Deferred to the file split (4.5): the load dialogs differ in validation and add-mode behaviour.
 
 ---
 
@@ -87,6 +110,7 @@ This document records duplicate code, dead code / slop, subtle bugs, and overcom
   - Line 99 (`export { fmt }`) — only imported by `app.ts:4`, which already imports from `../model/units`.
   - Lines 1100-1102: redundant outer `if (v === 'reactions' || v === 'deformed' || FORCE_VIEWS.includes(v))` wrapping `if (v === 'reactions')`.
   - Lines 442-443: duplicate JSDoc comment on `workPlanePoint`.
+- **Status:** ✅ Resolved in v1.2.2 as listed. `hasFsAccess` was deleted (not used in-file either), `Viewer.dispose()` was deleted rather than fixed (the viewer lives as long as the page), and the now-unused `SelKey` / `MemberReleases` imports went with them.
 
 ### 3.2 Minor Slop
 - **Double JSON deep-clone on every analysis run:**
@@ -95,6 +119,7 @@ This document records duplicate code, dead code / slop, subtle bugs, and overcom
 - **Awkward typing in `src/ui/dialogs.ts:54`:** `listTable` types cells as `Node[][]`, forcing 30+ `document.createTextNode(...)` calls even though `h('td', null, c)` accepts `string | Node`.
 - **Unused parameter:** `src/ui/dialogs.ts:391` (`catalogManager(_app: App)`).
 - **Inconsistent command call:** `src/ui/inspector.ts:254` calls `assignFrameReleases(app)` directly instead of `app.cmd('assignReleases')`.
+- **Status:** ✅ Resolved in v1.2.2, except that the clones in `analyzeAll` / `analyze` stay on purpose: `migrateModel` mutates its input, and the main-thread fallback and the tests pass the live model. Only the `client.ts` clone was removed (`postMessage` already copies). The 30 `createTextNode` wrappers were replaced with plain strings.
 
 ---
 
@@ -114,6 +139,7 @@ This document records duplicate code, dead code / slop, subtle bugs, and overcom
 - **Location:** `src/ui/diagrams.ts:145-229`
 - **Issue:** Rebuilding the entire dialog body on every `pointermove` (see Bug 1.3).
 - **Fix:** Separate static render (on open / view change) from dynamic cursor overlay updates (on drag).
+- **Status:** ✅ Resolved in v1.2.2 together with 1.3.
 
 ### 4.4 Tangled `workPlane` state between `ModelData.settings` and `App`
 - **Location:** `src/ui/app.ts:471-482` (`setWorkPlane`), `542-552` (`keepWorkPlane`), and `src/model/types.ts:7-12` (`Settings`)

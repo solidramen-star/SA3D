@@ -120,7 +120,7 @@ export function loadUserCatalogs(): Catalog[] {
 }
 
 /** Returns false when the browser storage is full or disabled. */
-export function saveUserCatalogs(list: Catalog[]): boolean {
+function saveUserCatalogs(list: Catalog[]): boolean {
   const st = storage();
   if (!st) return false;
   try {

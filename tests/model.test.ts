@@ -92,6 +92,25 @@ describe('Model editing and undo', () => {
     expect(m.data.frames.length).toBe(1);
   });
 
+  it('replicate copies end releases as independent arrays', () => {
+    const m = new Model();
+    const a = m.addJoint(0, 0, 0);
+    const b = m.addJoint(4, 0, 0);
+    const f = m.addFrame(a, b)!;
+    m.commit('rel', (d) => {
+      d.frames[0].relI = [false, false, false, false, true, true];
+      d.frames[0].relJ = [false, false, false, false, false, true];
+    });
+    const created = m.replicate([], [f], [], 0, 5, 0, 2);
+    expect(created.frames.length).toBe(2);
+    for (const id of created.frames) {
+      const nf = m.frame(id)!;
+      expect(nf.relI).toEqual([false, false, false, false, true, true]);
+      expect(nf.relJ).toEqual([false, false, false, false, false, true]);
+      expect(nf.relI).not.toBe(m.frame(f)!.relI);
+    }
+  });
+
   it('divide frame keeps loads at the right place', () => {
     const m = new Model();
     const a = m.addJoint(0, 0, 0);

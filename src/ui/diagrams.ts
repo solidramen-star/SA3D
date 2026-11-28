@@ -36,7 +36,6 @@ interface State {
   cursor: number | null; // x position along member (m)
   el: HTMLElement;
   body: HTMLElement;
-  pos: { left: number; top: number } | null;
 }
 
 let st: State | null = null;
@@ -67,7 +66,12 @@ function series(fr: FrameResult, view: DiagramView, relative: boolean): Series[]
   ];
 }
 
-function plot(fr: FrameResult, s: Series, cursor: number | null, onPick: (x: number) => void): HTMLElement {
+interface Plot {
+  el: HTMLElement;
+  setCursor: (cursor: number | null) => void;
+}
+
+function plot(fr: FrameResult, s: Series, onPick: (x: number) => void): Plot {
   const xs = fr.x;
   const L = fr.L || 1;
   let lo = Math.min(0, ...s.ys);
@@ -130,7 +134,8 @@ function plot(fr: FrameResult, s: Series, cursor: number | null, onPick: (x: num
   };
   lbl(iMax, !s.reversed);
   if (iMin !== iMax) lbl(iMin, !!s.reversed);
-  if (cursor !== null) root.append(svg('line', { x1: px(cursor), y1: 2, x2: px(cursor), y2: H - 2, class: 'fd-cursor' }));
+  const cur = svg('line', { x1: 0, y1: 2, x2: 0, y2: H - 2, class: 'fd-cursor', visibility: 'hidden' });
+  root.append(cur);
   const pick = (e: PointerEvent) => {
     const r = root.getBoundingClientRect();
     const sx = ((e.clientX - r.left) / r.width) * W;
@@ -150,29 +155,35 @@ function plot(fr: FrameResult, s: Series, cursor: number | null, onPick: (x: num
     root.addEventListener('pointerup', up);
     root.addEventListener('pointercancel', up);
   });
-  let readout = '';
-  let readoutColor = '';
-  if (cursor !== null) {
-    const v = sampleAt(xs, s.ys, cursor);
-    const val = Math.abs(v.left) >= Math.abs(v.right) ? v.left : v.right;
-    if (Math.abs(val) > 1e-12) {
-      readoutColor = val > 0 ? 'var(--pos)' : 'var(--neg)';
+  const readoutEl = h('span', { class: 'fd-readout' });
+  // Updates the cursor in place so a drag keeps its pointer capture on `root`.
+  const setCursor = (cursor: number | null) => {
+    let readout = '';
+    let readoutColor = '';
+    if (cursor === null) cur.setAttribute('visibility', 'hidden');
+    else {
+      cur.setAttribute('x1', String(px(cursor)));
+      cur.setAttribute('x2', String(px(cursor)));
+      cur.removeAttribute('visibility');
+      const v = sampleAt(xs, s.ys, cursor);
+      const val = Math.abs(v.left) >= Math.abs(v.right) ? v.left : v.right;
+      if (Math.abs(val) > 1e-12) {
+        readoutColor = val > 0 ? 'var(--pos)' : 'var(--neg)';
+      }
+      readout = Math.abs(v.left - v.right) > 1e-9 * Math.max(1, Math.abs(v.left), Math.abs(v.right))
+        ? `${s.conv(v.left)} / ${s.conv(v.right)} ${s.unit} (left / right)`
+        : `${s.conv(v.left)} ${s.unit}`;
     }
-    readout = Math.abs(v.left - v.right) > 1e-9 * Math.max(1, Math.abs(v.left), Math.abs(v.right))
-      ? `${s.conv(v.left)} / ${s.conv(v.right)} ${s.unit} (left / right)`
-      : `${s.conv(v.left)} ${s.unit}`;
-  }
-  return h(
+    readoutEl.textContent = readout;
+    readoutEl.style.color = readoutColor;
+  };
+  const el = h(
     'div',
     { class: 'fd-plot' },
-    h(
-      'div',
-      { class: 'fd-plot-head' },
-      h('span', { class: 'fd-plot-title' }, `${s.title} [${s.unit}]`),
-      h('span', { class: 'fd-readout', style: readoutColor ? `color: ${readoutColor}` : '' }, readout),
-    ),
+    h('div', { class: 'fd-plot-head' }, h('span', { class: 'fd-plot-title' }, `${s.title} [${s.unit}]`), readoutEl),
     root,
   );
+  return { el, setCursor };
 }
 
 function render(): void {
@@ -217,14 +228,19 @@ function render(): void {
     });
     controls.append(rel);
   }
+  const posEl = h('div', { class: 'fd-pos muted small' });
+  const sync = () => {
+    posEl.textContent =
+      s.cursor === null ? 'Tap or drag on a diagram to read values.' : `x = ${fmtU(s.cursor, 'L')} ${uLabel('L')} from joint i (L = ${fmtU(fr.L, 'L')} ${uLabel('L')})`;
+    for (const p of plots) p.setCursor(s.cursor);
+  };
   const pick = (x: number) => {
     s.cursor = x;
-    render();
+    sync();
   };
-  const plots = series(fr, s.view, s.relative).map((ser) => plot(fr, ser, s.cursor, pick));
-  const posText =
-    s.cursor === null ? 'Tap or drag on a diagram to read values.' : `x = ${fmtU(s.cursor, 'L')} ${uLabel('L')} from joint i (L = ${fmtU(fr.L, 'L')} ${uLabel('L')})`;
-  s.body.replaceChildren(controls, h('div', { class: 'fd-pos muted small' }, posText), ...plots);
+  const plots = series(fr, s.view, s.relative).map((ser) => plot(fr, ser, pick));
+  sync();
+  s.body.replaceChildren(controls, posEl, ...plots.map((p) => p.el));
   (s.el.querySelector('.fd-title') as HTMLElement).textContent = `Frame ${s.frameId} diagrams`;
 }
 
@@ -243,7 +259,6 @@ function makeDraggable(panel: HTMLElement, handle: HTMLElement): void {
       panel.style.top = `${top}px`;
       panel.style.right = 'auto';
       panel.style.bottom = 'auto';
-      if (st) st.pos = { left, top };
     };
     const up = () => {
       handle.removeEventListener('pointermove', move);
@@ -277,7 +292,7 @@ export function frameDiagramsDialog(app: App, frameId: number): void {
   close.addEventListener('click', () => closeFrameDiagrams());
   makeDraggable(el, head);
   document.body.append(el);
-  st = { app, frameId, caseName: app.resultName, view: lastView, relative: lastRelative, cursor: null, el, body, pos: null };
+  st = { app, frameId, caseName: app.resultName, view: lastView, relative: lastRelative, cursor: null, el, body };
   render();
 }
 
@@ -292,5 +307,3 @@ export function refreshFrameDiagrams(app: App): void {
   st.app = app;
   render();
 }
-
-export const frameDiagramsOpen = () => !!st;

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { Model } from '../src/model/model';
-import { frameCrossing } from '../src/model/snap';
+import { frameCrossing, segDist } from '../src/model/snap';
+import { cross, dot, norm, normalize, scale } from '../src/model/vec3';
+import { scale as solverScale } from '../src/solver/frame3d';
 
 const J = (x: number, y: number, z: number) => ({ id: 0, x, y, z });
 
@@ -67,5 +69,21 @@ describe('frame crossing', () => {
     expect(frameCrossing(J(0, 0, 0), J(4, 0, 0), J(0, 1, 0), J(4, 1, 0))).toBeNull();
     expect(frameCrossing(J(0, 0, 0), J(4, 0, 0), J(4, 0, 0), J(4, 3, 0))).toBeNull();
     expect(frameCrossing(J(0, 0, 0), J(4, 0, 0), J(2, 0, 0), J(2, 3, 0))).toBeNull();
+  });
+});
+
+describe('shared geometry helpers', () => {
+  it('segDist measures to the segment, clamped at its ends', () => {
+    expect(segDist(2, 3, 0, 0, 4, 0)).toBeCloseTo(3);
+    expect(segDist(-3, 4, 0, 0, 4, 0)).toBeCloseTo(5);
+    expect(segDist(7, 4, 0, 0, 4, 0)).toBeCloseTo(5);
+    expect(segDist(1, 1, 2, 2, 2, 2)).toBeCloseTo(Math.SQRT2);
+  });
+  it('vec3 helpers (re-exported by the solver)', () => {
+    expect(dot([1, 2, 3], [4, 5, 6])).toBe(32);
+    expect(cross([1, 0, 0], [0, 1, 0])).toEqual([0, 0, 1]);
+    expect(norm(normalize([3, 4, 12]))).toBeCloseTo(1);
+    expect(scale([1, -2, 3], 2)).toEqual([2, -4, 6]);
+    expect(solverScale).toBe(scale);
   });
 });

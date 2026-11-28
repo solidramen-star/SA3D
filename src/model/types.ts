@@ -66,18 +66,8 @@ export function hasSprings(j: Joint): boolean {
 
 export type ReleaseDof = 'P' | 'V2' | 'V3' | 'T' | 'M2' | 'M3';
 export const RELEASE_DOFS: ReleaseDof[] = ['P', 'V2', 'V3', 'T', 'M2', 'M3'];
-export const RELEASE_DOF_LABEL: Record<ReleaseDof, string> = {
-  P: 'Axial (P)',
-  V2: 'Shear V2',
-  V3: 'Shear V3',
-  T: 'Torsion (T)',
-  M2: 'Moment M2 (minor)',
-  M3: 'Moment M3 (major)',
-};
-
 export type MemberReleases = [boolean, boolean, boolean, boolean, boolean, boolean]; // P V2 V3 T M2 M3 (false = rigid/continuous, true = released)
 
-export const NO_RELEASES: MemberReleases = [false, false, false, false, false, false];
 export const PIN_RELEASES: MemberReleases = [false, false, false, false, true, true]; // M2 & M3 released
 // Truss member: torsion released at end I only (releasing T at both ends is a mechanism)
 export const TRUSS_RELEASES_I: MemberReleases = [false, false, false, true, true, true];
@@ -92,10 +82,6 @@ export function releaseMechanismError(relI?: MemberReleases, relJ?: MemberReleas
   const bad = RELEASE_DOFS.slice(0, 4).filter((_, k) => relI[k] && relJ[k]);
   if (!bad.length) return null;
   return `${bad.join(', ')} cannot be released at both ends – the member would be unstable (a mechanism).`;
-}
-
-export function hasMemberReleases(rel?: MemberReleases): boolean {
-  return !!rel && rel.some(Boolean);
 }
 
 export function formatReleases(rel?: MemberReleases): string {

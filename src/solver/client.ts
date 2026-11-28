@@ -45,6 +45,6 @@ export function runAnalysis(data: ModelData): Promise<ResultSet> {
   const id = ++seq;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve, reject });
-    w.postMessage({ id, data: JSON.parse(JSON.stringify(data)) });
+    w.postMessage({ id, data });
   });
 }

@@ -1,12 +1,21 @@
 import { COORD_TOL } from './model';
+import { dot, type Vec3 } from './vec3';
 type P = { x: number; y: number; z: number };
 
+/** 2D distance from point p to segment a–b (screen space). */
+export function segDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 > 0 ? Math.min(1, Math.max(0, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+  return Math.hypot(px - ax - dx * t, py - ay - dy * t);
+}
+
 /** Closest points of segments a0–a1 and b0–b1: parameters s (on a) and t (on b) in [0,1] and their distance. */
-export function closestSegSeg(a0: P, a1: P, b0: P, b1: P): { s: number; t: number; dist: number } {
-  const d1 = [a1.x - a0.x, a1.y - a0.y, a1.z - a0.z];
-  const d2 = [b1.x - b0.x, b1.y - b0.y, b1.z - b0.z];
-  const r = [a0.x - b0.x, a0.y - b0.y, a0.z - b0.z];
-  const dot = (u: number[], v: number[]) => u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+function closestSegSeg(a0: P, a1: P, b0: P, b1: P): { s: number; t: number; dist: number } {
+  const d1: Vec3 = [a1.x - a0.x, a1.y - a0.y, a1.z - a0.z];
+  const d2: Vec3 = [b1.x - b0.x, b1.y - b0.y, b1.z - b0.z];
+  const r: Vec3 = [a0.x - b0.x, a0.y - b0.y, a0.z - b0.z];
   const a = dot(d1, d1);
   const e = dot(d2, d2);
   const f = dot(d2, r);

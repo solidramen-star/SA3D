@@ -1068,12 +1068,15 @@ ul.issues.err {
     border-radius: 16px 16px 0 0;
     box-shadow: var(--shadow);
     z-index: 20;
-    transition: transform 0.2s ease;
+    transition: transform 0.2s ease, visibility 0s;
   }
+  /* Hidden after the slide-out so the off-screen sheet can't cover the status bar. */
   .panel.collapsed {
     width: auto;
     transform: translateY(100%);
     border-top: 0;
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
   }
   .sheet-grip {
     display: block;

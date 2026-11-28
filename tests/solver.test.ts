@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultModel, FIXED, type ModelData, type Restraint } from '../src/model/types';
 import { analyze, analyzeAll, SolverError } from '../src/solver/analyze';
 import { localDeflection, sampleAt } from '../src/solver/diagram';
+import { polygonArea } from '../src/solver/loads';
 import { sectionProps } from '../src/model/sections';
 
 const E = 2e8;
@@ -378,5 +379,12 @@ describe('diagram helpers', () => {
     close(rel[0], 0);
     close(rel[rel.length - 1], 0);
     expect(Math.abs(abs[abs.length - 1])).toBeGreaterThan(0);
+  });
+});
+describe('polygonArea', () => {
+  it('gives the area of planar polygons in any orientation', () => {
+    expect(polygonArea([[0, 0, 0], [4, 0, 0], [4, 3, 0], [0, 3, 0]])).toBeCloseTo(12);
+    expect(polygonArea([[0, 0, 0], [0, 2, 0], [0, 2, 5]])).toBeCloseTo(5);
+    expect(polygonArea([[1, 0, 0], [0, 1, 0], [0, 0, 1]])).toBeCloseTo(Math.sqrt(3) / 2);
   });
 });

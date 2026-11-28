@@ -29,8 +29,6 @@ const FILE_TYPES: Record<FileKind, PickerOpts['types']> = {
   dxf: [{ description: 'DXF drawing', accept: { 'application/dxf': ['.dxf'] } }],
 };
 
-export const hasFsAccess = () => typeof (window as W).showSaveFilePicker === 'function';
-
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
 
 export interface SaveResult {

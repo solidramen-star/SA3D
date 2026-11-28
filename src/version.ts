@@ -1,5 +1,5 @@
-export const APP_VERSION = '1.2.1';
-export const APP_UPDATE_DATE = '2026-11-26';
+export const APP_VERSION = '1.2.2';
+export const APP_UPDATE_DATE = '2026-11-28';
 
 export interface ChangelogEntry {
   version: string;
@@ -9,6 +9,18 @@ export interface ChangelogEntry {
 
 /** Newest first. Shown in Help ▸ About. */
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.2.2',
+    date: '2026-11-28',
+    changes: [
+      'New Clear button below Multi in the toolbar clears the selection (same as Esc)',
+      'Portrait / narrow screens: the hidden Properties panel no longer covers the status bar or blocks taps on it',
+      'Replicate now copies frame end releases to the new frames',
+      'Frame diagrams: dragging along a plot now moves the cursor and readouts continuously (before, only taps worked)',
+      'Extruded view: ghost frames are drawn once with thin lines instead of twice',
+      'Code cleanup: shared geometry and UI helpers, dead code removed, one less model copy per analysis run',
+    ],
+  },
   {
     version: '1.2.1',
     date: '2026-11-26',

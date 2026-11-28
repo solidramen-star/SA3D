@@ -12,7 +12,7 @@ import { csvDelimiter, csvField, parseCsv, parseCsvNumber } from './savFormat';
  * Published A/I33/I22/J override the values computed from the dimensions.
  */
 
-export const CATALOG_UNITS: Record<string, number> = { mm: 1e-3, cm: 1e-2, m: 1, in: 0.0254 };
+const CATALOG_UNITS: Record<string, number> = { mm: 1e-3, cm: 1e-2, m: 1, in: 0.0254 };
 const LB_FT_TO_KG_M = 1.48816394;
 
 const SHAPE_ALIASES: Record<string, SectionShape> = {

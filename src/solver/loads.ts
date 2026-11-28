@@ -49,10 +49,8 @@ export function dirLocal(dir: LoadDir, axes: [Vec3, Vec3, Vec3]): Vec3 {
 /** Width profile along an edge: list of [s, width] with s from 0 to edge length. */
 type Profile = [number, number][];
 
-const lerp3 = (a: Vec3, b: Vec3, t: number): Vec3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-
-function polygonArea(pts: Vec3[]): number {
-  // Newell's method
+/** Area of a planar polygon in 3D (Newell's method). */
+export function polygonArea(pts: Vec3[]): number {
   let nx = 0;
   let ny = 0;
   let nz = 0;
@@ -207,5 +205,3 @@ export function distributeAreaLoads(
   }
   return out;
 }
-
-export { lerp3 };
